@@ -23,7 +23,34 @@ Download the binary and run it.
 Usage
 -----
 
-Use stressdisk -h to see all the options.
+Use `stressdisk -h` to see all the options.
+
+    Disk soak testing utility
+    
+    Automatic usage:
+      stressdisk -a directory            - auto fill the directory up and soak test it
+      stressdisk -d directory            - delete the check files from the directory
+    
+    Manual usage:
+      stressdisk [ -s size ] -w filename - write a check file
+      stressdisk -r filename             - read the check file back
+      stressdisk -R filename             - ... repeatedly for duration set
+      stressdisk -c filename1 filename2  - compare two check files
+      stressdisk -C filename1 filename2  - ... repeatedly for duration set
+    
+    Full options:
+      -C=false: Compare two check files in a loop forever
+      -R=false: Read the check file back in and check it in a loop
+      -a=false: Auto check file system
+      -c=false: Compare two check files
+      -cpuprofile="": write cpu profile to file
+      -d=false: Delete check files
+      -duration=24h0m0s: Duration to run test
+      -logfile="stressdisk.log": File to write log to set to empty to ignore
+      -r=false: Read the check file back in and check it
+      -s=1000000000: Size of the file to write
+      -stats=1m0s: Interval to print stats
+      -w=false: Write the check file
 
 Quickstart
 ----------
@@ -34,25 +61,25 @@ Open a terminal (or cmd prompt if running Windows)
 
 To check the disk
 
-  Linux: ./stressdisk -a /media/nameofnewdisk
-  Windows: stressdisk.exe -a F:
+    Linux: ./stressdisk -a /media/nameofnewdisk
+    Windows: stressdisk.exe -a F:
 
 Let run for 24 hours.  Note whether any errors were reported.  Then use
 
-  Linux: ./stressdisk -d /media/nameofnewdisk
-  Windows: stressdisk.exe -d F:
+    Linux: ./stressdisk -d /media/nameofnewdisk
+    Windows: stressdisk.exe -d F:
 
-If you find errors, then you can use the -r / -R / -c and -C options
+If you find errors, then you can use the `-r` / `-R` / `-c` and `-C` options
 to check further.
 
-  2012/09/20 22:23:20 Exiting after running for > 30s
-  2012/09/20 22:23:20 
-  Bytes read:         20778 MByte ( 692.59 MByte/s)
-  Bytes written:          0 MByte (   0.00 MByte/s)
-  Errors:                 0
-  Elapsed time:  30.00033s
-
-  2012/09/20 22:23:20 PASSED with no errors
+    2012/09/20 22:23:20 Exiting after running for > 30s
+    2012/09/20 22:23:20 
+    Bytes read:         20778 MByte ( 692.59 MByte/s)
+    Bytes written:          0 MByte (   0.00 MByte/s)
+    Errors:                 0
+    Elapsed time:  30.00033s
+    
+    2012/09/20 22:23:20 PASSED with no errors
 
 Stress disk can be interrupted after it has written its check files
 and it will continue from where it left off.
@@ -110,7 +137,7 @@ Contact and support
 
 The project website is at:
 
-  https://github.com/ncw/stressdisk
+- https://github.com/ncw/stressdisk
 
 There you can file bug reports, ask for help or contribute patches.
 
@@ -123,4 +150,3 @@ Contributors
 ------------
 
 - Your name goes here!
-
