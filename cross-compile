@@ -1,0 +1,24 @@
+#!/bin/echo Source this file don't run it
+# Cross compile all the architectures using
+# http://dave.cheney.net/2012/09/08/an-introduction-to-cross-compilation-with-go
+
+#go-darwin-386 build
+go-darwin-amd64 build
+mv stressdisk stressdisk-mac
+
+#go-freebsd-386 build
+#go-freebsd-amd64 build
+
+go-linux-386 build
+mv stressdisk stressdisk-linux-386
+
+go-linux-amd64 build
+mv stressdisk stressdisk-linux-amd64
+
+go-linux-arm build
+mv stressdisk stressdisk-linux-arm
+
+go-windows-386 build
+#mv stressdisk.exe stressdisk-win
+
+#go-windows-amd64 build

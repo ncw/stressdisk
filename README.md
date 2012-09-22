@@ -18,7 +18,7 @@ Install
 
 StressDisk is a Go program and comes as a single binary file.
 
-Download the binary from (FIXME need to upload some binaries!)
+Download the relevant binary from
 
 - https://github.com/ncw/stressdisk/downloads
 
