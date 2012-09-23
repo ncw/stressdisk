@@ -9,8 +9,6 @@ KEEP a state file - maybe number of rounds so could restart?
 
 Estimate time to finish also
 
-Only print PASSED if actually tested something!
-
 No timeout on write file? Or read once?
 
 Make LEAF be settable
@@ -94,6 +92,7 @@ func NewRandom() *Random {
 
 // Stats stores accumulated statistics
 type Stats struct {
+	lock    sync.RWMutex
 	read    uint64
 	written uint64
 	errors  uint64
@@ -109,6 +108,8 @@ func NewStats() *Stats {
 
 // String convert the Stats to a string for printing
 func (s *Stats) String() string {
+	s.lock.RLock()
+	defer s.lock.RUnlock()
 	dt := time.Now().Sub(stats.start)
 	dt_seconds := dt.Seconds()
 	read_speed := 0.0
@@ -136,16 +137,22 @@ func (s *Stats) Log() {
 
 // Written updates the stats for bytes written
 func (s *Stats) Written(bytes uint64) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
 	s.written += bytes
 }
 
 // Read updates the stats for bytes read
 func (s *Stats) Read(bytes uint64) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
 	s.read += bytes
 }
 
 // Errors updates the stats for errors
 func (s *Stats) Errors(errors uint64) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
 	s.errors += errors
 }
 
@@ -482,10 +489,13 @@ func initialiseStats() chan bool {
 			}
 		}
 		stats.Log()
-		if stats.errors != 0 {
-			log.Fatalf("FAILED with %d errors - see %q for details", stats.errors, *logfile)
+		// Log pass / fail if we did any testing
+		if stats.read != 0 {
+			if stats.errors != 0 {
+				log.Fatalf("FAILED with %d errors - see %q for details", stats.errors, *logfile)
+			}
+			log.Println("PASSED with no errors")
 		}
-		log.Println("PASSED with no errors")
 		os.Exit(0)
 	}()
 	return finished
