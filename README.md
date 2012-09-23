@@ -158,4 +158,5 @@ Authors
 Contributors
 ------------
 
+- Yves Junqueira for code review and helpful suggestions
 - Your name goes here!

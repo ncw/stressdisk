@@ -14,6 +14,11 @@ Only print PASSED if actually tested something!
 No timeout on write file? Or read once?
 
 Make LEAF be settable
+
+Make blockReader not Fatal error if there is a problem - would then
+need to make sure all the goroutines were killed off properly
+
+Output limited number of errors on a diff
 */
 
 package main
@@ -38,11 +43,11 @@ import (
 )
 
 const (
-	SIZE    = 2 * 1024 * 1024 // size of block to do IO with
-	RANLEN  = 55              // Magic constants (See Knuth: Seminumerical Algorithms)
-	RANLEN2 = 24              // Do not change! (They are for a maximal length LFSR)
-
-	LEAF = "TST_"
+	MB = 1024 * 1024	  // Bytes in a Megabyte
+	BlockSize = 2 * MB        // size of block to do IO with
+	ranlen  = 55              // Magic constants (See Knuth: Seminumerical Algorithms)
+	ranlen2 = 24              // Do not change! (They are for a maximal length LFSR)
+	Leaf = "TST_"		  // name of the check files
 )
 
 // Globals
@@ -64,20 +69,21 @@ var (
 	wg            sync.WaitGroup
 )
 
+// Random contains the state for the random stream generator
 type Random struct {
 	extendedData []byte
-	Data         []byte // A SIZE chunk of data which points to extendedData
+	Data         []byte // A BlockSize chunk of data which points to extendedData
 	bytes        int    // number of bytes of randomness
 	pos          int    // read position for Read
 }
 
-// Make a new random
+// NewRandom make a new random stream generator
 func NewRandom() *Random {
 	r := &Random{}
-	r.extendedData = make([]byte, SIZE+RANLEN)
-	r.Data = r.extendedData[0:SIZE]
+	r.extendedData = make([]byte, BlockSize+ranlen)
+	r.Data = r.extendedData[0:BlockSize]
 	r.Data[0] = 1
-	for i := 1; i < RANLEN; i++ {
+	for i := 1; i < ranlen; i++ {
 		r.Data[i] = 0xA5
 	}
 	r.Randomise() // initial randomisation
@@ -86,7 +92,7 @@ func NewRandom() *Random {
 	return r
 }
 
-// Accumulate statistics
+// Stats stores accumulated statistics
 type Stats struct {
 	read    uint64
 	written uint64
@@ -94,16 +100,15 @@ type Stats struct {
 	start   time.Time
 }
 
-// Initialise the stats
+// NewStats cretates an initialised Stats
 func NewStats() *Stats {
 	stats := Stats{}
 	stats.start = time.Now()
 	return &stats
 }
 
-// Convert the stats to a string for printing
+// String convert the Stats to a string for printing
 func (s *Stats) String() string {
-	const MB = 1024 * 1024
 	dt := time.Now().Sub(stats.start)
 	dt_seconds := dt.Seconds()
 	read_speed := 0.0
@@ -124,27 +129,27 @@ Elapsed time:  %v
 		dt)
 }
 
-// Output the stats to the log
+// Log outputs the Stats to the log
 func (s *Stats) Log() {
 	log.Printf("%v\n", stats)
 }
 
-// Update the stats for bytes written
+// Written updates the stats for bytes written
 func (s *Stats) Written(bytes uint64) {
 	s.written += bytes
 }
 
-// Update the stats for bytes read
+// Read updates the stats for bytes read
 func (s *Stats) Read(bytes uint64) {
 	s.read += bytes
 }
 
-// Update the stats for errors
+// Errors updates the stats for errors
 func (s *Stats) Errors(errors uint64) {
 	s.errors += errors
 }
 
-// Fill the random block up with randomness
+// Randomise fills the random block up with randomness.
 //
 // This uses a random number generator from Knuth: Seminumerical
 // Algorithms.  The magic numbers are the polynomial for a maximal
@@ -153,20 +158,20 @@ func (s *Stats) Errors(errors uint64) {
 // cause the sequence to be some multiple of this.
 func (r *Random) Randomise() {
 	// copy the old randomness to the end
-	copy(r.extendedData[SIZE:], r.extendedData[0:RANLEN])
+	copy(r.extendedData[BlockSize:], r.extendedData[0:ranlen])
 
 	// make a new random block
 	d := r.extendedData
-	for i := SIZE - 1; i >= 0; i-- {
-		d[i] = d[i+RANLEN] + d[i+RANLEN2]
+	for i := BlockSize - 1; i >= 0; i-- {
+		d[i] = d[i+ranlen] + d[i+ranlen2]
 	}
 
 	// Show we have some bytes
-	r.bytes = SIZE
+	r.bytes = BlockSize
 	r.pos = 0
 }
 
-// Implement io.Reader for Random
+// Read implements io.Reader for Random
 func (r *Random) Read(p []byte) (int, error) {
 	bytes_to_write := len(p)
 	bytes_written := 0
@@ -187,10 +192,10 @@ func (r *Random) Read(p []byte) (int, error) {
 	return bytes_written, nil
 }
 
-// Diff two byte blocks
+// outputDiff checks two blocks and outputs differences to the log
 func outputDiff(pos int64, a, b []byte) {
 	if len(a) != len(b) {
-		panic("Blocks passed to outputDiff must be the same length")
+		panic("Assertion failed: Blocks passed to outputDiff must be the same length")
 	}
 	errors := uint64(0)
 	for i := range a {
@@ -203,19 +208,22 @@ func outputDiff(pos int64, a, b []byte) {
 	stats.Errors(errors)
 }
 
-// Read a file in SIZE chunks until done
-// Returns them in the channel
+// blockReader reads a file in BlockSize using blockSizechunks until done.
 //
-// This improves read speed from 62.3 MByte/s to 69 MByte/s in two files read
-// and for random from 62 to 90 Mbyte/s
+// It returns them in the channel using a triple buffered goroutine to
+// do the reading so as to parallelise the IO.
+//
+// This improves read speed from 62.3 MByte/s to 69 MByte/s when
+// reading two files and and from 62 to 182 Mbyte/s when reading from
+// one file and one random source.
 func blockReader(in io.Reader, file string) chan []byte {
-	out := make(chan []byte, 1) // channel of size 1 so have one block in flight and one being read
-	// FIXME not sure why 3 blocks needed - according to my
-	// thinking 2 should be enough but there is obviously
-	// something I've not thought of!
-	block1 := make([]byte, SIZE)
-	block2 := make([]byte, SIZE)
-	block3 := make([]byte, SIZE)
+	// Triple buffering with chan of length 1. One block being
+	// filled, one block in the channel, and one block being used
+	// by the client
+	out := make(chan []byte, 1)
+	block1 := make([]byte, BlockSize)
+	block2 := make([]byte, BlockSize)
+	block3 := make([]byte, BlockSize)
 	go func() {
 		for {
 			_, err := io.ReadFull(in, block1)
@@ -227,7 +235,7 @@ func blockReader(in io.Reader, file string) chan []byte {
 			}
 			// FIXME bodge - don't account for reading from the random number
 			if file != "random" {
-				stats.Read(SIZE)
+				stats.Read(BlockSize)
 			}
 			out <- block1
 			block1, block2, block3 = block2, block3, block1
@@ -237,10 +245,8 @@ func blockReader(in io.Reader, file string) chan []byte {
 	return out
 }
 
-// Read the file
-//
-// Using blockReader improves speed from 62 MByte/s to 182 MByte/s
-func read_file(file string) {
+// ReadFile reads the file given and checks it against the random source
+func ReadFile(file string) {
 	in, err := os.Open(file)
 	if err != nil {
 		log.Fatalf("Failed to open %s for reading: %s\n", file, err)
@@ -251,7 +257,7 @@ func read_file(file string) {
 	pos := int64(0)
 	log.Printf("Reading file %q\n", file)
 
-	// FIXME this is similar code to read_two_files
+	// FIXME this is similar code to ReadTwoFiles
 	ch1 := blockReader(in, file)
 	ch2 := blockReader(random, "random")
 	for {
@@ -263,14 +269,14 @@ func read_file(file string) {
 		if bytes.Compare(block1, block2) != 0 {
 			outputDiff(pos, block1, block2)
 		}
-		pos += SIZE
+		pos += BlockSize
 	}
 }
 
-// Write the file
+// WriteFile writes the random source for size bytes to the file given
 //
-// Returns a boolean whether the write failed
-func write_file(file string, size int64) bool {
+// Returns a true if the write failed, false otherwise.
+func WriteFile(file string, size int64) bool {
 	out, err := os.Create(file)
 	if err != nil {
 		log.Fatalf("Couldn't open file %q for write: %s\n", file, err)
@@ -288,8 +294,8 @@ func write_file(file string, size int64) bool {
 			failed = true
 			break
 		}
-		size -= SIZE
-		stats.Written(SIZE)
+		size -= BlockSize
+		stats.Written(BlockSize)
 	}
 
 	out.Close()
@@ -303,8 +309,10 @@ func write_file(file string, size int64) bool {
 	return failed
 }
 
-// Reads two files and checks them as it goes along
-func read_two_files(file1, file2 string) {
+// ReadTwoFiles reads two files and checks them to be the same as it goes along.
+//
+// It reads the files in BlockSize chunks.
+func ReadTwoFiles(file1, file2 string) {
 	in1, err := os.Open(file1)
 	if err != nil {
 		log.Fatalf("Couldn't open file %q for read\n", file1)
@@ -334,12 +342,12 @@ func read_two_files(file1, file2 string) {
 		if bytes.Compare(block1, block2) != 0 {
 			outputDiff(pos, block1, block2)
 		}
-		pos += SIZE
+		pos += BlockSize
 	}
 }
 
-// bad syntax
-func syntax_error() {
+// syntaxError prints the syntax
+func syntaxError() {
 	fmt.Fprintf(os.Stderr, `Disk soak testing utility
 
 Automatic usage:
@@ -358,15 +366,16 @@ Full options:
 	flag.PrintDefaults()
 }
 
+// checkArgs checks there are enough arguments and prints a message if not
 func checkArgs(args []string, n int, message string) {
 	if len(args) != n {
-		syntax_error()
+		syntaxError()
 		fmt.Fprintf(os.Stderr, "%d arguments required: %s\n", n, message)
 		os.Exit(1)
 	}
 }
 
-// Make a single round
+// pairs is used to make the schedule for testing pairs of files.
 //
 // This reads all the data twice in a random order
 func pairs(n int) (a, b []int) {
@@ -387,9 +396,9 @@ OUTER:
 	return
 }
 
-// Find the check files in the directory passed in, returning all the files
-func readDir(dir string) []string {
-	matcher := regexp.MustCompile(`^` + regexp.QuoteMeta(LEAF) + `\d{4,}$`)
+// ReadDir finds the check files in the directory passed in, returning all the files
+func ReadDir(dir string) []string {
+	matcher := regexp.MustCompile(`^` + regexp.QuoteMeta(Leaf) + `\d{4,}$`)
 	entries, err := ioutil.ReadDir(dir)
 	if err != nil {
 		log.Fatalf("Couldn't read directory %q: %s\n", dir, err)
@@ -404,8 +413,8 @@ func readDir(dir string) []string {
 	return files
 }
 
-// Delete the check files
-func deleteFiles(files []string) {
+// DeleteFiles deletes all the check files
+func DeleteFiles(files []string) {
 	log.Printf("Removing %d check files\n", len(files))
 	for _, file := range files {
 		log.Printf("Removing file %q\n", file)
@@ -416,36 +425,36 @@ func deleteFiles(files []string) {
 	}
 }
 
-// Write the check files
-func writeFiles(dir string) []string {
+// WriteFiles writes check files until the disk is full
+func WriteFiles(dir string) []string {
 	files := make([]string, 0)
 	for i := 0; ; i++ {
-		file := filepath.Join(dir, fmt.Sprintf("%s%04d", LEAF, i))
-		if write_file(file, *fileSize) {
+		file := filepath.Join(dir, fmt.Sprintf("%s%04d", Leaf, i))
+		if WriteFile(file, *fileSize) {
 			break
 		}
 		files = append(files, file)
 	}
 	if len(files) < 2 {
-		deleteFiles(files)
+		DeleteFiles(files)
 		log.Fatalf("Only generated %d files which isn't enough - reduce the size with -s\n", len(files))
 	}
 	return files
 }
 
-// Read the check files or create new ones
-func getFiles(dir string) []string {
-	files := readDir(dir)
+// GetFiles finds existing check files or created new ones
+func GetFiles(dir string) []string {
+	files := ReadDir(dir)
 	if len(files) == 0 {
 		log.Printf("No check files - generating\n")
-		files = writeFiles(dir)
+		files = WriteFiles(dir)
 	} else {
 		log.Printf("%d check files found - restarting\n", len(files))
 	}
 	return files
 }
 
-// Initialise the stats and stats printing
+// initialiseStats clears the stats and stats printing
 func initialiseStats() chan bool {
 	stats = NewStats()
 	sigint := make(chan os.Signal, 1)
@@ -483,7 +492,7 @@ func initialiseStats() chan bool {
 }
 
 func main() {
-	flag.Usage = syntax_error
+	flag.Usage = syntaxError
 	flag.Parse()
 	args := flag.Args()
 	finished := initialiseStats()
@@ -519,26 +528,26 @@ func main() {
 	case *writeFile:
 		checkArgs(args, 1, "Need file to write")
 		action = func() bool {
-			write_file(args[0], *fileSize)
+			WriteFile(args[0], *fileSize)
 			return false
 		}
 	case *checkFile || *checkFileLoop:
 		checkArgs(args, 2, "Need two files to read")
 		action = func() bool {
-			read_two_files(args[0], args[1])
+			ReadTwoFiles(args[0], args[1])
 			return *checkFileLoop
 		}
 	case *readFile || *readFileLoop:
 		checkArgs(args, 1, "Need file to read")
 		action = func() bool {
-			read_file(args[0])
+			ReadFile(args[0])
 			return *readFileLoop
 		}
 	case *remove:
 		checkArgs(args, 1, "Need directory to delete files from")
 		action = func() bool {
 			dir := args[0]
-			deleteFiles(readDir(dir))
+			DeleteFiles(ReadDir(dir))
 			return false
 		}
 	case *auto:
@@ -546,16 +555,16 @@ func main() {
 		// FIXME should be default
 		checkArgs(args, 1, "Need directory to write check files")
 		dir := args[0]
-		files := getFiles(dir)
+		files := GetFiles(dir)
 		action = func() bool {
 			a, b := pairs(len(files))
 			for i := range a {
-				read_two_files(files[a[i]], files[b[i]])
+				ReadTwoFiles(files[a[i]], files[b[i]])
 			}
 			return true
 		}
 	default:
-		syntax_error()
+		syntaxError()
 		os.Exit(1)
 	}
 
