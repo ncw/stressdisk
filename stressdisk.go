@@ -64,7 +64,6 @@ var (
 	statsInterval = flag.Duration("stats", time.Minute*1, "Interval to print stats")
 	logfile       = flag.String("logfile", "stressdisk.log", "File to write log to set to empty to ignore")
 	stats         *Stats
-	wg            sync.WaitGroup
 )
 
 // Random contains the state for the random stream generator
@@ -461,51 +460,25 @@ func GetFiles(dir string) []string {
 	return files
 }
 
-// initialiseStats clears the stats and stats printing
-func initialiseStats() chan bool {
-	stats = NewStats()
-	sigint := make(chan os.Signal, 1)
-	signal.Notify(sigint, syscall.SIGINT)
-	stats_print := time.Tick(*statsInterval)
-	timeout := time.Tick(*duration)
-	finished := make(chan bool)
-	go func() {
-		wg.Add(1)
-		defer wg.Done()
-		done := false
-		for !done {
-			select {
-			case <-sigint:
-				log.Printf("Interrupt received\n")
-				done = true
-			case <-finished:
-				log.Printf("Finished\n")
-				done = true
-			case <-timeout:
-				log.Printf("Exiting after running for > %v", duration)
-				done = true
-			case <-stats_print:
-				stats.Log()
-			}
+// finished prints the message and some stats then exits with the correct error code
+func finished(message string) {
+	log.Println(message)
+	stats.Log()
+	// Log pass / fail if we did any testing
+	if stats.read != 0 {
+		if stats.errors != 0 {
+			log.Fatalf("FAILED with %d errors - see %q for details", stats.errors, *logfile)
 		}
-		stats.Log()
-		// Log pass / fail if we did any testing
-		if stats.read != 0 {
-			if stats.errors != 0 {
-				log.Fatalf("FAILED with %d errors - see %q for details", stats.errors, *logfile)
-			}
-			log.Println("PASSED with no errors")
-		}
-		os.Exit(0)
-	}()
-	return finished
+		log.Println("PASSED with no errors")
+	}
+	os.Exit(0)
 }
 
 func main() {
 	flag.Usage = syntaxError
 	flag.Parse()
 	args := flag.Args()
-	finished := initialiseStats()
+	stats = NewStats()
 	runtime.GOMAXPROCS(3)
 
 	// Setup profiling if desired
@@ -578,6 +551,29 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Exit on keyboard interrrupt
+	go func() {
+		ch := make(chan os.Signal, 1)
+		signal.Notify(ch, syscall.SIGINT)
+		<-ch
+		finished("Interrupt received")
+	}()
+
+	// Exit on timeout
+	go func() {
+		<-time.After(*duration)
+		finished(fmt.Sprintf("Exiting after running for > %v", duration))
+	}()
+
+	// Print the stats every statsInterval
+	go func() {
+		ch := time.Tick(*statsInterval)
+		for {
+			<-ch
+			stats.Log()
+		}
+	}()
+
 	// Run the action
 	for round := 0; ; round++ {
 		log.Printf("Starting round %d\n", round+1)
@@ -586,6 +582,5 @@ func main() {
 		}
 	}
 
-	finished <- true
-	wg.Wait() // wait for everything else to finish
+	finished("All done")
 }
