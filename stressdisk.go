@@ -41,11 +41,11 @@ import (
 )
 
 const (
-	MB = 1024 * 1024	  // Bytes in a Megabyte
-	BlockSize = 2 * MB        // size of block to do IO with
-	ranlen  = 55              // Magic constants (See Knuth: Seminumerical Algorithms)
-	ranlen2 = 24              // Do not change! (They are for a maximal length LFSR)
-	Leaf = "TST_"		  // name of the check files
+	MB        = 1024 * 1024 // Bytes in a Megabyte
+	BlockSize = 2 * MB      // size of block to do IO with
+	ranlen    = 55          // Magic constants (See Knuth: Seminumerical Algorithms)
+	ranlen2   = 24          // Do not change! (They are for a maximal length LFSR)
+	Leaf      = "TST_"      // name of the check files
 )
 
 // Globals
@@ -123,8 +123,8 @@ Bytes written: %10d MByte (%7.2f MByte/s)
 Errors:        %10d
 Elapsed time:  %v
 `,
-		stats.read / MB, read_speed,
-		stats.written / MB, write_speed,
+		stats.read/MB, read_speed,
+		stats.written/MB, write_speed,
 		stats.errors,
 		dt)
 }
@@ -214,7 +214,21 @@ func outputDiff(pos int64, a, b []byte) {
 	stats.Errors(errors)
 }
 
-// blockReader reads a file in BlockSize using blockSizechunks until done.
+// BlockReader contains the state for reading blocks out of the file
+type BlockReader struct {
+	// Input file
+	in io.Reader
+	// Name of input file
+	file string
+	// Channel to output blocks
+	out chan []byte
+	// Channel to signal quit
+	quit chan bool
+	// Co-ordinate with background goroutine
+	wg sync.WaitGroup
+}
+
+// blockReader reads a file in BlockSize using BlockSize chunks until done.
 //
 // It returns them in the channel using a triple buffered goroutine to
 // do the reading so as to parallelise the IO.
@@ -222,33 +236,66 @@ func outputDiff(pos int64, a, b []byte) {
 // This improves read speed from 62.3 MByte/s to 69 MByte/s when
 // reading two files and and from 62 to 182 Mbyte/s when reading from
 // one file and one random source.
-func blockReader(in io.Reader, file string) chan []byte {
-	// Triple buffering with chan of length 1. One block being
-	// filled, one block in the channel, and one block being used
-	// by the client
-	out := make(chan []byte, 1)
+func NewBlockReader(in io.Reader, file string) *BlockReader {
+	br := &BlockReader{
+		in:   in,
+		file: file,
+		out:  make(chan []byte, 1),
+		quit: make(chan bool, 1), // buffer of size 1 so can send into it without blocking
+	}
+	// Run the reader in the background
+	br.wg.Add(1)
+	go br.background()
+	return br
+}
+
+// background routine for BlockReader to read the blocks in the
+// background into the channel
+//
+// It uses triple buffering with chan of length 1. One block being
+// filled, one block in the channel, and one block being used by the
+// client.
+func (br *BlockReader) background() {
+	defer br.wg.Done()
+	defer close(br.out)
 	block1 := make([]byte, BlockSize)
 	block2 := make([]byte, BlockSize)
 	block3 := make([]byte, BlockSize)
-	go func() {
-		for {
-			_, err := io.ReadFull(in, block1)
-			if err != nil {
-				if err == io.EOF {
-					break
-				}
-				log.Fatalf("Error while reading %q: %s\n", file, err)
+	for {
+		_, err := io.ReadFull(br.in, block1)
+		if err != nil {
+			if err == io.EOF {
+				return
 			}
-			// FIXME bodge - don't account for reading from the random number
-			if file != "random" {
-				stats.Read(BlockSize)
-			}
-			out <- block1
-			block1, block2, block3 = block2, block3, block1
+			log.Fatalf("Error while reading %q: %s\n", br.file, err)
 		}
-		out <- nil
-	}()
+		// FIXME bodge - don't account for reading from the random number
+		if br.file != "random" {
+			stats.Read(BlockSize)
+		}
+		select {
+		case br.out <- block1:
+		case <-br.quit:
+			return
+		}
+		block1, block2, block3 = block2, block3, block1
+	}
+}
+
+// Read a block from the BlockReader
+//
+// Process this block completely before reading the next one
+//
+// Returns nil at end of file
+func (br *BlockReader) Read() []byte {
+	out, _ := <-br.out
 	return out
+}
+
+// Close the BlockReader shuttting down the background goroutine
+func (br *BlockReader) Close() {
+	br.quit <- true
+	br.wg.Wait()
 }
 
 // ReadFile reads the file given and checks it against the random source
@@ -264,11 +311,13 @@ func ReadFile(file string) {
 	log.Printf("Reading file %q\n", file)
 
 	// FIXME this is similar code to ReadTwoFiles
-	ch1 := blockReader(in, file)
-	ch2 := blockReader(random, "random")
+	br1 := NewBlockReader(in, file)
+	defer br1.Close()
+	br2 := NewBlockReader(random, "random")
+	defer br2.Close()
 	for {
-		block1 := <-ch1
-		block2 := <-ch2
+		block1 := br1.Read()
+		block2 := br2.Read()
 		if block1 == nil {
 			break
 		}
@@ -292,9 +341,10 @@ func WriteFile(file string, size int64) bool {
 
 	failed := false
 	random := NewRandom()
-	rnd := blockReader(random, "random")
+	br := NewBlockReader(random, "random")
+	defer br.Close()
 	for size > 0 {
-		_, err := out.Write(<-rnd)
+		_, err := out.Write(br.Read())
 		if err != nil {
 			log.Printf("Error while writing %q\n", file)
 			failed = true
@@ -334,14 +384,16 @@ func ReadTwoFiles(file1, file2 string) {
 	log.Printf("Reading file %q, %q\n", file1, file2)
 
 	pos := int64(0)
-	ch1 := blockReader(in1, file1)
-	ch2 := blockReader(in2, file2)
+	br1 := NewBlockReader(in1, file1)
+	defer br1.Close()
+	br2 := NewBlockReader(in2, file2)
+	defer br2.Close()
 	for {
-		block1 := <-ch1
-		block2 := <-ch2
+		block1 := br1.Read()
+		block2 := br2.Read()
 		if block1 == nil || block2 == nil {
 			if block1 != nil || block2 != nil {
-				log.Fatal("Files %q and %q are different sizes", file1, file2)
+				log.Fatalf("Files %q and %q are different sizes\n", file1, file2)
 			}
 			break
 		}
