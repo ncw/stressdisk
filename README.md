@@ -37,29 +37,23 @@ Use `stressdisk -h` to see all the options.
     Disk soak testing utility
     
     Automatic usage:
-      stressdisk -a directory            - auto fill the directory up and soak test it
-      stressdisk -d directory            - delete the check files from the directory
+      stressdisk run directory            - auto fill the directory up and soak test it
+      stressdisk clean directory          - delete the check files from the directory
     
     Manual usage:
-      stressdisk [ -s size ] -w filename - write a check file
-      stressdisk -r filename             - read the check file back
-      stressdisk -R filename             - ... repeatedly for duration set
-      stressdisk -c filename1 filename2  - compare two check files
-      stressdisk -C filename1 filename2  - ... repeatedly for duration set
+      stressdisk help                       - this help
+      stressdisk [ -s size ] write filename - write a check file
+      stressdisk read filename              - read the check file back
+      stressdisk reads filename             - ... repeatedly for duration set
+      stressdisk check filename1 filename2  - compare two check files
+      stressdisk checks filename1 filename2 - ... repeatedly for duration set
     
     Full options:
-      -C=false: Compare two check files in a loop forever
-      -R=false: Read the check file back in and check it in a loop
-      -a=false: Auto check file system
-      -c=false: Compare two check files
       -cpuprofile="": write cpu profile to file
-      -d=false: Delete check files
       -duration=24h0m0s: Duration to run test
       -logfile="stressdisk.log": File to write log to set to empty to ignore
-      -r=false: Read the check file back in and check it
       -s=1000000000: Size of the file to write
       -stats=1m0s: Interval to print stats
-      -w=false: Write the check file
 
 Quickstart
 ----------
@@ -70,16 +64,16 @@ Open a terminal (or cmd prompt if running Windows)
 
 To check the disk
 
-    Linux: ./stressdisk -a /media/nameofnewdisk
-    Windows: stressdisk.exe -a F:
+    Linux: ./stressdisk run /media/nameofnewdisk
+    Windows: stressdisk.exe run F:
 
 Let run for 24 hours.  Note whether any errors were reported.  Then use
 
-    Linux: ./stressdisk -d /media/nameofnewdisk
-    Windows: stressdisk.exe -d F:
+    Linux: ./stressdisk clean /media/nameofnewdisk
+    Windows: stressdisk.exe clean F:
 
-If you find errors, then you can use the `-r` / `-R` / `-c` and `-C` options
-to check further.
+If you find errors, then you can use the `read` / `reads` / `check` /
+`checks` sub-commands to investigate further.
 
     2012/09/20 22:23:20 Exiting after running for > 30s
     2012/09/20 22:23:20 
@@ -134,6 +128,15 @@ The original stressdisk was written in C with a perl wrapper but it
 was rather awkward to use because of that, so I re-wrote it in Go in
 2012 as an exercise in learning Go and so that I could distribute it
 in an easy to run single executable format.
+
+Bugs
+----
+
+If the media you are testing is smaller than your free RAM then you'll
+mostly just be testing your RAM.  So if you are testing a 4GB memory
+stick on a computer with 8 GB of RAM then the OS will load the 4GB of
+memory stick into its cache instead of reading it from the memory
+stick each time.
 
 License
 -------

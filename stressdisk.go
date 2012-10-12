@@ -35,6 +35,7 @@ import (
 	"regexp"
 	"runtime"
 	"runtime/pprof"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -51,15 +52,8 @@ const (
 // Globals
 var (
 	// Flags
-	fileSize      = flag.Int64("s", 1E9, "Size of the file to write")
-	writeFile     = flag.Bool("w", false, "Write the check file")
-	readFile      = flag.Bool("r", false, "Read the check file back in and check it")
-	readFileLoop  = flag.Bool("R", false, "Read the check file back in and check it in a loop")
-	checkFile     = flag.Bool("c", false, "Compare two check files")
-	checkFileLoop = flag.Bool("C", false, "Compare two check files in a loop forever")
-	auto          = flag.Bool("a", false, "Auto check file system")
-	remove        = flag.Bool("d", false, "Delete check files")
-	cpuprofile    = flag.String("cpuprofile", "", "write cpu profile to file")
+	fileSize      = flag.Int64("s", 1E9, "Size of the check files")
+	cpuprofile    = flag.String("cpuprofile", "", "Write cpu profile to file")
 	duration      = flag.Duration("duration", time.Hour*24, "Duration to run test")
 	statsInterval = flag.Duration("stats", time.Minute*1, "Interval to print stats")
 	logfile       = flag.String("logfile", "stressdisk.log", "File to write log to set to empty to ignore")
@@ -409,27 +403,33 @@ func syntaxError() {
 	fmt.Fprintf(os.Stderr, `Disk soak testing utility
 
 Automatic usage:
-  stressdisk -a directory            - auto fill the directory up and soak test it
-  stressdisk -d directory            - delete the check files from the directory
+  stressdisk run directory            - auto fill the directory up and soak test it
+  stressdisk clean directory          - delete the check files from the directory
 
 Manual usage:
-  stressdisk [ -s size ] -w filename - write a check file
-  stressdisk -r filename             - read the check file back
-  stressdisk -R filename             - ... repeatedly for duration set
-  stressdisk -c filename1 filename2  - compare two check files
-  stressdisk -C filename1 filename2  - ... repeatedly for duration set
+  stressdisk help                       - this help
+  stressdisk [ -s size ] write filename - write a check file
+  stressdisk read filename              - read the check file back
+  stressdisk reads filename             - ... repeatedly for duration set
+  stressdisk check filename1 filename2  - compare two check files
+  stressdisk checks filename1 filename2 - ... repeatedly for duration set
 
 Full options:
 `)
 	flag.PrintDefaults()
 }
 
+// Exit with the message
+func fatal(message string, args ...interface{}) {
+	syntaxError()
+	fmt.Fprintf(os.Stderr, message, args...)
+	os.Exit(1)
+}
+
 // checkArgs checks there are enough arguments and prints a message if not
 func checkArgs(args []string, n int, message string) {
 	if len(args) != n {
-		syntaxError()
-		fmt.Fprintf(os.Stderr, "%d arguments required: %s\n", n, message)
-		os.Exit(1)
+		fatal("%d arguments required: %s\n", n, message)
 	}
 }
 
@@ -556,36 +556,39 @@ func main() {
 		log.SetOutput(io.MultiWriter(os.Stderr, fd))
 	}
 
-	action := func() bool {
-		return false
+	if len(args) < 1 {
+		fatal("No command supplied\n")
 	}
-	switch {
-	case *writeFile:
+	command := strings.ToLower(args[0])
+	args = args[1:]
+	var action func() bool
+	switch command {
+	case "write":
 		checkArgs(args, 1, "Need file to write")
 		action = func() bool {
 			WriteFile(args[0], *fileSize)
 			return false
 		}
-	case *checkFile || *checkFileLoop:
+	case "check", "checks":
 		checkArgs(args, 2, "Need two files to read")
 		action = func() bool {
 			ReadTwoFiles(args[0], args[1])
-			return *checkFileLoop
+			return command == "checks"
 		}
-	case *readFile || *readFileLoop:
+	case "read", "reads":
 		checkArgs(args, 1, "Need file to read")
 		action = func() bool {
 			ReadFile(args[0])
-			return *readFileLoop
+			return command == "reads"
 		}
-	case *remove:
+	case "clean":
 		checkArgs(args, 1, "Need directory to delete files from")
 		action = func() bool {
 			dir := args[0]
 			DeleteFiles(ReadDir(dir))
 			return false
 		}
-	case *auto:
+	case "run":
 		// FIXME directory could be omitted?
 		// FIXME should be default
 		checkArgs(args, 1, "Need directory to write check files")
@@ -599,8 +602,7 @@ func main() {
 			return true
 		}
 	default:
-		syntaxError()
-		os.Exit(1)
+		fatal("Command %q not understood\n", command)
 	}
 
 	// Exit on keyboard interrrupt
