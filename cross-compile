@@ -2,22 +2,35 @@
 # Cross compile all the architectures using
 # http://dave.cheney.net/2012/09/08/an-introduction-to-cross-compilation-with-go
 
-#go-darwin-386 build
+echo darwin-386
+go-darwin-386 build
+mv stressdisk stressdisk-mac-386
+
+echo darwin-amd64
 go-darwin-amd64 build
 mv stressdisk stressdisk-mac
 
-#go-freebsd-386 build
-#go-freebsd-amd64 build
+echo freebsd-386
+go-freebsd-386 build
+mv stressdisk stressdisk-freebsd-386
 
+echo freebsd-amd64
+go-freebsd-amd64 build
+mv stressdisk stressdisk-freebsd-amd64
+
+echo linux-386
 go-linux-386 build
 mv stressdisk stressdisk-linux-386
 
+echo linux-amd64
 go-linux-amd64 build
 mv stressdisk stressdisk-linux-amd64
 
+echo linux-arm
 go-linux-arm build
 mv stressdisk stressdisk-linux-arm
 
+echo windows-386
 go-windows-386 build
 #mv stressdisk.exe stressdisk-win
 
