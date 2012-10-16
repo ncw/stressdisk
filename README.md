@@ -20,7 +20,7 @@ StressDisk is a Go program and comes as a single binary file.
 
 Download the relevant binary from
 
-- https://github.com/ncw/stressdisk/downloads
+- http://www.craig-wood.com/nick/pub/stressdisk/
 
 Or alternatively if you have Go installed use
 
@@ -108,9 +108,8 @@ The access patterns are designed so that your computer won't cache the
 data being read off the disk so your computer will be forced to read
 it off the disk.
 
-However if your computer memory is bigger than the size of the disk
-your are testing then you'll be testing your computers RAM rather than
-the disk!
+Stressdisk uses OS specific commands to make sure the data isn't
+cached in RAM so that you won't just be testing your computer RAM.
 
 History
 -------
@@ -129,20 +128,11 @@ was rather awkward to use because of that, so I re-wrote it in Go in
 2012 as an exercise in learning Go and so that I could distribute it
 in an easy to run single executable format.
 
-Bugs
-----
-
-If the media you are testing is smaller than your free RAM then you'll
-mostly just be testing your RAM.  So if you are testing a 4GB memory
-stick on a computer with 8 GB of RAM then the OS will load the 4GB of
-memory stick into its cache instead of reading it from the memory
-stick each time.
-
 License
 -------
 
-This is free software under the terms of MIT license (check COPYING file
-included in this package).
+This is free software under the terms of MIT the license (check the
+COPYING file included in this package).
 
 Contact and support
 -------------------
