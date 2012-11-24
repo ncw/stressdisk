@@ -15,8 +15,6 @@ Make LEAF be settable
 
 Make blockReader not Fatal error if there is a problem - would then
 need to make sure all the goroutines were killed off properly
-
-Output limited number of errors on a diff
 */
 
 package main
@@ -57,6 +55,7 @@ var (
 	duration      = flag.Duration("duration", time.Hour*24, "Duration to run test")
 	statsInterval = flag.Duration("stats", time.Minute*1, "Interval to print stats")
 	logfile       = flag.String("logfile", "stressdisk.log", "File to write log to set to empty to ignore")
+	maxErrors     = flag.Uint64("maxerrors", 64, "Max number of errors to print per file")
 	stats         *Stats
 )
 
@@ -193,19 +192,27 @@ func (r *Random) Read(p []byte) (int, error) {
 }
 
 // outputDiff checks two blocks and outputs differences to the log
-func outputDiff(pos int64, a, b []byte) {
+func outputDiff(pos int64, a, b []byte, output bool) bool {
 	if len(a) != len(b) {
 		panic("Assertion failed: Blocks passed to outputDiff must be the same length")
 	}
 	errors := uint64(0)
 	for i := range a {
 		if a[i] != b[i] {
-			log.Printf("%08X: %02X, %02X diff %02X\n",
-				pos+int64(i), b[i], a[i], b[i]^a[i])
+			if output {
+				if errors < *maxErrors {
+					log.Printf("%08X: %02X, %02X diff %02X\n",
+						pos+int64(i), b[i], a[i], b[i]^a[i])
+				} else if errors >= *maxErrors {
+					log.Printf("Error limit %d reached: not printing any more differences in this file\n", *maxErrors)
+					output = false
+				}
+			}
 			errors += 1
 		}
 	}
 	stats.Errors(errors)
+	return output
 }
 
 // BlockReader contains the state for reading blocks out of the file
@@ -309,6 +316,7 @@ func ReadFile(file string) {
 	defer br1.Close()
 	br2 := NewBlockReader(random, "random")
 	defer br2.Close()
+	output := true
 	for {
 		block1 := br1.Read()
 		block2 := br2.Read()
@@ -316,7 +324,7 @@ func ReadFile(file string) {
 			break
 		}
 		if bytes.Compare(block1, block2) != 0 {
-			outputDiff(pos, block1, block2)
+			output = outputDiff(pos, block1, block2, output)
 		}
 		pos += BlockSize
 	}
@@ -382,6 +390,7 @@ func ReadTwoFiles(file1, file2 string) {
 	defer br1.Close()
 	br2 := NewBlockReader(in2, file2)
 	defer br2.Close()
+	output := true
 	for {
 		block1 := br1.Read()
 		block2 := br2.Read()
@@ -392,7 +401,7 @@ func ReadTwoFiles(file1, file2 string) {
 			break
 		}
 		if bytes.Compare(block1, block2) != 0 {
-			outputDiff(pos, block1, block2)
+			output = outputDiff(pos, block1, block2, output)
 		}
 		pos += BlockSize
 	}
