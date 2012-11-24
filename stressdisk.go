@@ -541,6 +541,7 @@ func main() {
 	args := flag.Args()
 	stats = NewStats()
 	runtime.GOMAXPROCS(3)
+	rand.Seed(time.Now().UnixNano())
 
 	// Setup profiling if desired
 	if *cpuprofile != "" {
