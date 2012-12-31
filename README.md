@@ -152,4 +152,5 @@ Contributors
 ------------
 
 - Yves Junqueira for code review and helpful suggestions
+- dcabro for reporting the windows empty partition issue
 - Your name goes here!

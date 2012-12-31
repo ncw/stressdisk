@@ -466,11 +466,14 @@ OUTER:
 // ReadDir finds the check files in the directory passed in, returning all the files
 func ReadDir(dir string) []string {
 	matcher := regexp.MustCompile(`^` + regexp.QuoteMeta(Leaf) + `\d{4,}$`)
+	files := make([]string, 0)
 	entries, err := ioutil.ReadDir(dir)
 	if err != nil {
-		log.Fatalf("Couldn't read directory %q: %s\n", dir, err)
+		// Warn only if couldn't open directory
+		// See: http://code.google.com/p/go/issues/detail?id=4601
+		log.Printf("Couldn't read directory %q: %s\n", dir, err)
+		return files
 	}
-	files := make([]string, 0)
 	for _, entry := range entries {
 		name := entry.Name()
 		if entry.Mode()&os.ModeType == 0 && matcher.MatchString(name) {
