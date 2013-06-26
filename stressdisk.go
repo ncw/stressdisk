@@ -1,7 +1,7 @@
 // This checks a disc for errors.  It is also a sensitive memory tester
 // (suprisingly) so if you get a fault using this program then it could
 // be disc or RAM.
-// 
+//
 // Nick Craig-Wood <nick@craig-wood.com>
 
 /*
