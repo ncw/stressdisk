@@ -23,6 +23,7 @@ import (
 	"bytes"
 	"flag"
 	"fmt"
+	"github.com/ncw/directio"
 	"io"
 	"io/ioutil"
 	"log"
@@ -259,9 +260,9 @@ func NewBlockReader(in io.Reader, file string) *BlockReader {
 func (br *BlockReader) background() {
 	defer br.wg.Done()
 	defer close(br.out)
-	block1 := makeAlignedBlock(BlockSize)
-	block2 := makeAlignedBlock(BlockSize)
-	block3 := makeAlignedBlock(BlockSize)
+	block1 := directio.AlignedBlock(BlockSize)
+	block2 := directio.AlignedBlock(BlockSize)
+	block3 := directio.AlignedBlock(BlockSize)
 	for {
 		_, err := io.ReadFull(br.in, block1)
 		if err != nil {
@@ -301,7 +302,7 @@ func (br *BlockReader) Close() {
 
 // ReadFile reads the file given and checks it against the random source
 func ReadFile(file string) {
-	in, err := OpenFile(file, os.O_RDONLY, 0666)
+	in, err := directio.OpenFile(file, os.O_RDONLY, 0666)
 	if err != nil {
 		log.Fatalf("Failed to open %s for reading: %s\n", file, err)
 	}
@@ -334,7 +335,7 @@ func ReadFile(file string) {
 //
 // Returns a true if the write failed, false otherwise.
 func WriteFile(file string, size int64) bool {
-	out, err := OpenFile(file, os.O_CREATE|os.O_WRONLY, 0666)
+	out, err := directio.OpenFile(file, os.O_CREATE|os.O_WRONLY, 0666)
 	if err != nil {
 		log.Fatalf("Couldn't open file %q for write: %s\n", file, err)
 	}
@@ -371,13 +372,13 @@ func WriteFile(file string, size int64) bool {
 //
 // It reads the files in BlockSize chunks.
 func ReadTwoFiles(file1, file2 string) {
-	in1, err := OpenFile(file1, os.O_RDONLY, 0666)
+	in1, err := directio.OpenFile(file1, os.O_RDONLY, 0666)
 	if err != nil {
 		log.Fatalf("Couldn't open file %q for read\n", file1)
 	}
 	defer in1.Close()
 
-	in2, err := OpenFile(file2, os.O_RDONLY, 0666)
+	in2, err := directio.OpenFile(file2, os.O_RDONLY, 0666)
 	if err != nil {
 		log.Fatalf("Couldn't open file %q for read\n", file2)
 	}
