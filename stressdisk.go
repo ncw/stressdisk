@@ -94,9 +94,7 @@ type Stats struct {
 
 // NewStats cretates an initialised Stats
 func NewStats() *Stats {
-	stats := Stats{}
-	stats.start = time.Now()
-	return &stats
+	return &Stats{start: time.Now()}
 }
 
 // String convert the Stats to a string for printing
