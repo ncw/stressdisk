@@ -147,6 +147,7 @@ Authors
 -------
 
 - Nick Craig-Wood <nick@craig-wood.com>
+- Tomás Senart <tsenart@gmail.com>
 
 Contributors
 ------------
