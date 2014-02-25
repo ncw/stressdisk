@@ -36,6 +36,7 @@ import (
 	"runtime/pprof"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -85,7 +86,6 @@ func NewRandom() *Random {
 
 // Stats stores accumulated statistics
 type Stats struct {
-	lock    sync.RWMutex
 	read    uint64
 	written uint64
 	errors  uint64
@@ -99,15 +99,13 @@ func NewStats() *Stats {
 
 // String convert the Stats to a string for printing
 func (s *Stats) String() string {
-	s.lock.RLock()
-	defer s.lock.RUnlock()
 	dt := time.Now().Sub(s.start)
 	dt_seconds := dt.Seconds()
-	read_speed := 0.0
-	write_speed := 0.0
+	read, written := atomic.LoadUint64(&s.read), atomic.LoadUint64(&s.written)
+	read_speed, write_speed := 0.0, 0.0
 	if dt > 0 {
-		read_speed = float64(s.read) / MB / dt_seconds
-		write_speed = float64(s.written) / MB / dt_seconds
+		read_speed = float64(read) / MB / dt_seconds
+		write_speed = float64(written) / MB / dt_seconds
 	}
 	return fmt.Sprintf(`
 Bytes read:    %10d MByte (%7.2f MByte/s)
@@ -115,36 +113,30 @@ Bytes written: %10d MByte (%7.2f MByte/s)
 Errors:        %10d
 Elapsed time:  %v
 `,
-		s.read/MB, read_speed,
-		s.written/MB, write_speed,
-		s.errors,
+		read/MB, read_speed,
+		written/MB, write_speed,
+		atomic.LoadUint64(&s.errors),
 		dt)
 }
 
 // Log outputs the Stats to the log
 func (s *Stats) Log() {
-	log.Printf("%v\n", stats)
+	log.Println(stats)
 }
 
 // Written updates the stats for bytes written
 func (s *Stats) Written(bytes uint64) {
-	s.lock.Lock()
-	defer s.lock.Unlock()
-	s.written += bytes
+	atomic.AddUint64(&s.written, bytes)
 }
 
 // Read updates the stats for bytes read
 func (s *Stats) Read(bytes uint64) {
-	s.lock.Lock()
-	defer s.lock.Unlock()
-	s.read += bytes
+	atomic.AddUint64(&s.read, bytes)
 }
 
 // Errors updates the stats for errors
 func (s *Stats) Errors(errors uint64) {
-	s.lock.Lock()
-	defer s.lock.Unlock()
-	s.errors += errors
+	atomic.AddUint64(&s.errors, errors)
 }
 
 // Randomise fills the random block up with randomness.
