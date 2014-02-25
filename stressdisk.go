@@ -103,13 +103,13 @@ func NewStats() *Stats {
 func (s *Stats) String() string {
 	s.lock.RLock()
 	defer s.lock.RUnlock()
-	dt := time.Now().Sub(stats.start)
+	dt := time.Now().Sub(s.start)
 	dt_seconds := dt.Seconds()
 	read_speed := 0.0
 	write_speed := 0.0
 	if dt > 0 {
-		read_speed = float64(stats.read) / MB / dt_seconds
-		write_speed = float64(stats.written) / MB / dt_seconds
+		read_speed = float64(s.read) / MB / dt_seconds
+		write_speed = float64(s.written) / MB / dt_seconds
 	}
 	return fmt.Sprintf(`
 Bytes read:    %10d MByte (%7.2f MByte/s)
@@ -117,9 +117,9 @@ Bytes written: %10d MByte (%7.2f MByte/s)
 Errors:        %10d
 Elapsed time:  %v
 `,
-		stats.read/MB, read_speed,
-		stats.written/MB, write_speed,
-		stats.errors,
+		s.read/MB, read_speed,
+		s.written/MB, write_speed,
+		s.errors,
 		dt)
 }
 
