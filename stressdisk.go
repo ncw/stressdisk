@@ -23,7 +23,6 @@ import (
 	"bytes"
 	"flag"
 	"fmt"
-	"github.com/ncw/directio"
 	"io"
 	"io/ioutil"
 	"log"
@@ -39,6 +38,8 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+
+	"github.com/ncw/directio"
 )
 
 const (
@@ -420,7 +421,7 @@ Full options:
 }
 
 // Exit with the message
-func fatal(message string, args ...interface{}) {
+func fatalf(message string, args ...interface{}) {
 	syntaxError()
 	fmt.Fprintf(os.Stderr, message, args...)
 	os.Exit(1)
@@ -429,7 +430,7 @@ func fatal(message string, args ...interface{}) {
 // checkArgs checks there are enough arguments and prints a message if not
 func checkArgs(args []string, n int, message string) {
 	if len(args) != n {
-		fatal("%d arguments required: %s\n", n, message)
+		fatalf("%d arguments required: %s\n", n, message)
 	}
 }
 
@@ -561,7 +562,7 @@ func main() {
 	}
 
 	if len(args) < 1 {
-		fatal("No command supplied\n")
+		fatalf("No command supplied\n")
 	}
 	command := strings.ToLower(args[0])
 	args = args[1:]
@@ -606,7 +607,7 @@ func main() {
 			return true
 		}
 	default:
-		fatal("Command %q not understood\n", command)
+		fatalf("Command %q not understood\n", command)
 	}
 
 	// Exit on keyboard interrrupt
