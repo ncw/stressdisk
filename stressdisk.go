@@ -215,6 +215,8 @@ type BlockReader struct {
 	file string
 	// Channel to output blocks
 	out chan []byte
+	// Channel for spare blocks
+	spare chan []byte
 	// Channel to signal quit
 	quit chan bool
 	// Co-ordinate with background goroutine
@@ -231,10 +233,11 @@ type BlockReader struct {
 // one file and one random source.
 func NewBlockReader(in io.Reader, file string) *BlockReader {
 	br := &BlockReader{
-		in:   in,
-		file: file,
-		out:  make(chan []byte, 1),
-		quit: make(chan bool, 1), // buffer of size 1 so can send into it without blocking
+		in:    in,
+		file:  file,
+		out:   make(chan []byte, 1),
+		spare: make(chan []byte, 4),
+		quit:  make(chan bool, 1), // buffer of size 1 so can send into it without blocking
 	}
 	// Run the reader in the background
 	br.wg.Add(1)
@@ -251,11 +254,12 @@ func NewBlockReader(in io.Reader, file string) *BlockReader {
 func (br *BlockReader) background() {
 	defer br.wg.Done()
 	defer close(br.out)
-	block1 := directio.AlignedBlock(BlockSize)
-	block2 := directio.AlignedBlock(BlockSize)
-	block3 := directio.AlignedBlock(BlockSize)
+	br.spare <- directio.AlignedBlock(BlockSize)
+	br.spare <- directio.AlignedBlock(BlockSize)
+	br.spare <- directio.AlignedBlock(BlockSize)
 	for {
-		_, err := io.ReadFull(br.in, block1)
+		block := <-br.spare
+		_, err := io.ReadFull(br.in, block)
 		if err != nil {
 			if err == io.EOF {
 				return
@@ -267,22 +271,28 @@ func (br *BlockReader) background() {
 			stats.Read(BlockSize)
 		}
 		select {
-		case br.out <- block1:
+		case br.out <- block:
 		case <-br.quit:
 			return
 		}
-		block1, block2, block3 = block2, block3, block1
 	}
 }
 
 // Read a block from the BlockReader
 //
-// Process this block completely before reading the next one
-//
 // Returns nil at end of file
 func (br *BlockReader) Read() []byte {
 	out, _ := <-br.out
 	return out
+}
+
+// Return a block to the BlockReader when processed for re-use
+//
+// Ignores a nil block
+func (br *BlockReader) Return(block []byte) {
+	if block != nil {
+		br.spare <- block
+	}
 }
 
 // Close the BlockReader shuttting down the background goroutine
@@ -319,6 +329,8 @@ func ReadFile(file string) {
 			output = outputDiff(pos, block1, block2, output)
 		}
 		pos += BlockSize
+		br1.Return(block1)
+		br2.Return(block2)
 	}
 }
 
@@ -338,7 +350,9 @@ func WriteFile(file string, size int64) bool {
 	br := NewBlockReader(random, "random")
 	defer br.Close()
 	for size > 0 {
-		_, err := out.Write(br.Read())
+		block := br.Read()
+		_, err := out.Write(block)
+		br.Return(block)
 		if err != nil {
 			log.Printf("Error while writing %q\n", file)
 			failed = true
@@ -396,6 +410,8 @@ func ReadTwoFiles(file1, file2 string) {
 			output = outputDiff(pos, block1, block2, output)
 		}
 		pos += BlockSize
+		br1.Return(block1)
+		br2.Return(block2)
 	}
 }
 
