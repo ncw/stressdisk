@@ -23,4 +23,6 @@ The files in this directory are organised by OS and processor type
 
 #EOF
 
+mv build/darwin build/osx
+
 ( cd build ; tree . >> README.txt )
