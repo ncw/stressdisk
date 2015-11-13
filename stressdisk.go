@@ -686,6 +686,24 @@ func main() {
 			}
 			return true
 		}
+	case "flash":
+		checkArgs(args, 1, "Need directory to perform testing")
+		dir := args[0]
+		files := ReadDir(dir)
+		DeleteFiles(files)
+		action = func() bool {
+			for j := 0; j < 1000000; j++ { // N* 1,000,000 GB || N* 1,000 TB
+				files := GetFiles(dir)
+				a, b := pairs(len(files))
+				for i := range a {
+					ReadTwoFiles(files[a[i]], files[b[i]])
+				}
+				DeleteFiles(files)
+			}
+			return false
+		}
+
+
 	default:
 		fatalf("Command %q not understood\n", command)
 	}
