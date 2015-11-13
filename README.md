@@ -34,26 +34,40 @@ Usage
 
 Use `stressdisk -h` to see all the options.
 
-    Disk soak testing utility
-    
-    Automatic usage:
-      stressdisk run directory            - auto fill the directory up and soak test it
-      stressdisk clean directory          - delete the check files from the directory
-    
-    Manual usage:
-      stressdisk help                       - this help
-      stressdisk [ -s size ] write filename - write a check file
-      stressdisk read filename              - read the check file back
-      stressdisk reads filename             - ... repeatedly for duration set
-      stressdisk check filename1 filename2  - compare two check files
-      stressdisk checks filename1 filename2 - ... repeatedly for duration set
-    
-    Full options:
-      -cpuprofile="": write cpu profile to file
-      -duration=24h0m0s: Duration to run test
-      -logfile="stressdisk.log": File to write log to set to empty to ignore
-      -s=1000000000: Size of the file to write
-      -stats=1m0s: Interval to print stats
+```
+Disk soak testing utility
+
+Automatic usage:
+  stressdisk run directory            - auto fill the directory up and soak test it
+  stressdisk cycle directory          - fill, test, delete, repeat - torture for flash
+  stressdisk clean directory          - delete the check files from the directory
+
+Manual usage:
+  stressdisk help                       - this help
+  stressdisk [ -s size ] write filename - write a check file
+  stressdisk read filename              - read the check file back
+  stressdisk reads filename             - ... repeatedly for duration set
+  stressdisk check filename1 filename2  - compare two check files
+  stressdisk checks filename1 filename2 - ... repeatedly for duration set
+
+Full options:
+  -cpuprofile string
+        Write cpu profile to file
+  -duration duration
+        Duration to run test (default 24h0m0s)
+  -logfile string
+        File to write log to set to empty to ignore (default "stressdisk.log")
+  -maxerrors uint
+        Max number of errors to print per file (default 64)
+  -nodirect
+        Don't use O_DIRECT
+  -s int
+        Size of the check files (default 1000000000)
+  -stats duration
+        Interval to print stats (default 1m0s)
+  -statsfile string
+        File to load/store statistics data (default "stressdisk_stats.json")
+```
 
 Quickstart
 ----------
@@ -90,6 +104,38 @@ and it will continue from where it left off.
 The default running time for stressdisk is 24h which is a sensible
 minimum.  However if you want to run it for longer then use `-duration
 48h` for instance.
+
+Testing Flash
+-------------
+
+Stressdisk has a special mode which is good for giving flash / SSD
+media a hard time.  The normal "run" test will fill the disk and read
+the files back continually which a good test but doesn't torture flash
+as much as it could as writing is a much more intensive operation for
+flash than reading.
+
+To test flash / SSD harder "cycle" mode does lots of write cycles as
+well as read cycles. It works by filling the media with test files
+verifying that the data is valid, deleting the test files, and
+repeating the write + verify process continually.
+
+**Caution**: This will be destructive to flash media if run long periods
+of time, since flash devices have a limited number of writes per
+sector/cell.
+
+**This Is Intentional**!  You can use this to stress test flash harder.
+
+You can also use this mode to find the breaking point of flash devices
+to determine what the lifetime of the media is if you are quality
+testing flash media before making a bulk buy.  The `-statsfile` option
+is useful when doing this to save persistent stats to disk in case the
+process is interrupted.
+
+If you are merely interested in doing a less destructive test of the
+flash device for data integrity, then should use the "run" mode, as
+this mode only writes the check files once, and does reads operations
+to verify data integrity which have little destructive penalty.
+
 
 How it works
 ------------
