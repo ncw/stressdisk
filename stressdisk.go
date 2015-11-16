@@ -21,6 +21,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -59,13 +60,20 @@ var (
 	statsInterval = flag.Duration("stats", time.Minute*1, "Interval to print stats")
 	logfile       = flag.String("logfile", "stressdisk.log", "File to write log to set to empty to ignore")
 	maxErrors     = flag.Uint64("maxerrors", 64, "Max number of errors to print per file")
+	statsEnable   = flag.Int64("statsenable", 0, "Enable/Disable statistics data on disk")
+	statsFilename = flag.String("statsfile", "stats", "Filename to load/store statistics data on disk")
+	statsDir      = flag.String("statsdir", "", "Device and path to load/store statistics data on disk")
 	stats         *Stats
 )
+
+var tmpReads uint64      // temporary value for mode read
+var tmpWrites uint64     // temporary value for mode write
+var logMode bool = false // log read/write mode statistics
 
 // enum program mode
 const (
 	modeNONE = iota
-	modeREAD 
+	modeREAD
 	modeREAD_DONE
 	modeWRITE
 	modeWRITE_DONE
@@ -94,76 +102,89 @@ func NewRandom() *Random {
 	return r
 }
 
-// Stats stores accumulated statistics
+// Names of struct vars need to be capitalized to export to json
 type Stats struct {
-	read         uint64
-	written      uint64
-	errors       uint64
-	start        time.Time
-	readStart    time.Time  // start of unaccumulated time of read operation
-	readSeconds  float64    // read seconds accumulator
-	writeStart   time.Time  // start of unaccumulated time of write operation
-	writeSeconds float64    // write seconds accumulator
-	mode         int // current mode - modeNONE, modeREAD, modeWRITE
+	Read         uint64
+	Written      uint64
+	Errors       uint64
+	Start        time.Time
+	ReadStart    time.Time // start of unaccumulated time of read operation
+	ReadSeconds  float64   // read seconds accumulator
+	WriteStart   time.Time // start of unaccumulated time of write operation
+	WriteSeconds float64   // write seconds accumulator
+	Mode         int       // current mode - modeNONE, modeREAD, modeWRITE
 }
 
 // NewStats cretates an initialised Stats
 func NewStats() *Stats {
-	return &Stats{start: time.Now()}
+	return &Stats{Start: time.Now()}
 }
 
-
-// Be sure to transition from for example modeREAD to mode_READ_DONE, 
-// before transitioning to mode_WRITE, otherwise you will lose the 
+// Be sure to transition from for example modeREAD to mode_READ_DONE,
+// before transitioning to mode_WRITE, otherwise you will lose the
 // corresponding time statistic in the time accumulator.
 // Also you must for enter modeREAD before transition to modeREAD_DONE.
 func (s *Stats) SetMode(mode int) {
-	s.mode = mode
-	switch  s.mode	{
+	s.Mode = mode
+	switch s.Mode {
 	default:
 	case modeNONE:
-		fallthrough
+
 	case modeREAD:
-		s.readStart = time.Now()
-		fallthrough
+		s.ReadStart = time.Now()
+		tmpReads = stats.Read
 	case modeREAD_DONE:
-		s.readSeconds += time.Now().Sub(s.readStart).Seconds()
-		fallthrough
+		dt := time.Now().Sub(s.ReadStart)
+		s.ReadSeconds += dt.Seconds()
+		if logMode {
+			log.Printf("Read:    %10d MByte (%7.2f MByte/s)",
+				(stats.Read-tmpReads)/MB,
+				float64(stats.Read-tmpReads)/MB/dt.Seconds())
+
+		}
+		stats.Store()
 	case modeWRITE:
-		s.writeStart = time.Now()
-		fallthrough
+		s.WriteStart = time.Now()
+		tmpWrites = stats.Written
+
 	case modeWRITE_DONE:
-		s.writeSeconds += time.Now().Sub(s.writeStart).Seconds()
+		dt := time.Now().Sub(s.WriteStart)
+		s.WriteSeconds += dt.Seconds()
+		if logMode {
+			log.Printf("Written:  %10d MByte (%7.2f MByte/s)",
+				(stats.Written-tmpWrites)/MB,
+				float64(stats.Written-tmpWrites)/MB/dt.Seconds())
+
+		}
+		stats.Store()
 	}
 }
 
 // String convert the Stats to a string for printing
 func (s *Stats) String() string {
-	dt := time.Now().Sub(s.start)  // total elapsed time
-	read, written := atomic.LoadUint64(&s.read), atomic.LoadUint64(&s.written)
+	dt := time.Now().Sub(s.Start) // total elapsed time
+	read, written := atomic.LoadUint64(&s.Read), atomic.LoadUint64(&s.Written)
 	read_speed, write_speed := 0.0, 0.0
 
 	// calculate interim duration - for periodic stats display
 	// while operation is not completed.
-	switch s.mode  { 
+	switch s.Mode {
 	default:
 	case modeNONE:
 		// do nothing
-		fallthrough
 	case modeREAD:
-		s.readSeconds += time.Now().Sub(s.readStart).Seconds();
-		s.readStart = time.Now()
-		fallthrough
+		s.ReadSeconds += time.Now().Sub(s.ReadStart).Seconds()
+		s.ReadStart = time.Now()
 	case modeWRITE:
-		s.writeSeconds += time.Now().Sub(s.writeStart).Seconds()
-		s.writeStart = time.Now()
+		s.WriteSeconds += time.Now().Sub(s.WriteStart).Seconds()
+		s.WriteStart = time.Now()
 	}
 
-	if(s.readSeconds != 0)	{
-		read_speed = float64(read) / MB / s.readSeconds
+	if s.ReadSeconds != 0 {
+		read_speed = float64(read) / MB / s.ReadSeconds
 	}
-	if(s.writeSeconds != 0)	{
-		write_speed = float64(written) / MB / s.writeSeconds
+	if s.WriteSeconds != 0 {
+		write_speed = float64(written) / MB / s.WriteSeconds
 	}
 
 	return fmt.Sprintf(`
@@ -174,8 +195,49 @@ Elapsed time:  %v
 `,
 		read/MB, read_speed,
 		written/MB, write_speed,
-		atomic.LoadUint64(&s.errors),
+		atomic.LoadUint64(&s.Errors),
 		dt)
+
+}
+
+func (s *Stats) Store() {
+	if *statsEnable != 0 {
+		statsPathname := filepath.Join(*statsDir, *statsFilename)
+		statsFile, err := os.OpenFile(statsPathname, os.O_CREATE|os.O_WRONLY, 0666)
+		defer statsFile.Close()
+		if err != nil {
+			log.Printf("error opening statsfile %v", err)
+			os.Exit(1)
+		} else {
+			encoder := json.NewEncoder(statsFile)
+			// Encode into the buffer
+			err = encoder.Encode(&s)
+		}
+	}
+}
+
+func (s *Stats) Load() {
+	if *statsEnable != 0 {
+		statPathname := filepath.Join(*statsDir, *statsFilename)
+		_, err := os.Stat(statPathname)
+		if err == nil {
+
+			statsFile, err := os.Open(statPathname)
+			defer statsFile.Close()
+			if err != nil {
+				log.Printf("error opening statsfile %v", err)
+			} else {
+				decoder := json.NewDecoder(statsFile)
+				err = decoder.Decode(&stats)
+				stats.Start = time.Now() // restart the program timer
+				stats.Mode = 0           // reset the mode to uninitialized
+				log.Printf("loaded statsfile %s", statPathname)
+				stats.Log()
+			}
+		} else {
+			log.Printf("statsfile %s does not exist -- will create", statPathname)
+		}
+	}
 }
 
 // Log outputs the Stats to the log
@@ -184,18 +246,18 @@ func (s *Stats) Log() {
 }
 
 // Written updates the stats for bytes written
-func (s *Stats) Written(bytes uint64) {
-	atomic.AddUint64(&s.written, bytes)
+func (s *Stats) AddWritten(bytes uint64) {
+	atomic.AddUint64(&s.Written, bytes)
 }
 
 // Read updates the stats for bytes read
-func (s *Stats) Read(bytes uint64) {
-	atomic.AddUint64(&s.read, bytes)
+func (s *Stats) AddRead(bytes uint64) {
+	atomic.AddUint64(&s.Read, bytes)
 }
 
 // Errors updates the stats for errors
-func (s *Stats) Errors(errors uint64) {
-	atomic.AddUint64(&s.errors, errors)
+func (s *Stats) SetErrors(errors uint64) {
+	atomic.AddUint64(&s.Errors, errors)
 }
 
 // Randomise fills the random block up with randomness.
@@ -261,7 +323,7 @@ func outputDiff(pos int64, a, b []byte, output bool) bool {
 			errors += 1
 		}
 	}
-	stats.Errors(errors)
+	stats.SetErrors(errors)
 	return output
 }
 
@@ -326,7 +388,7 @@ func (br *BlockReader) background() {
 		}
 		// FIXME bodge - don't account for reading from the random number
 		if br.file != "random" {
-			stats.Read(BlockSize)
+			stats.AddRead(BlockSize)
 		}
 		select {
 		case br.out <- block:
@@ -377,6 +439,10 @@ func ReadFile(file string) {
 	br2 := NewBlockReader(random, "random")
 	defer br2.Close()
 	output := true
+
+	stats.SetMode(modeREAD)
+	defer stats.SetMode(modeREAD_DONE)
+
 	for {
 		block1 := br1.Read()
 		block2 := br2.Read()
@@ -408,6 +474,7 @@ func WriteFile(file string, size int64) bool {
 	br := NewBlockReader(random, "random")
 	defer br.Close()
 	stats.SetMode(modeWRITE)
+	defer stats.SetMode(modeWRITE_DONE)
 	for size > 0 {
 		block := br.Read()
 		_, err := out.Write(block)
@@ -418,9 +485,8 @@ func WriteFile(file string, size int64) bool {
 			break
 		}
 		size -= BlockSize
-		stats.Written(BlockSize)
+		stats.AddWritten(BlockSize)
 	}
-	stats.SetMode(modeWRITE_DONE)
 
 	out.Close()
 	if failed {
@@ -452,6 +518,7 @@ func ReadTwoFiles(file1, file2 string) {
 	log.Printf("Reading file %q, %q\n", file1, file2)
 
 	stats.SetMode(modeREAD)
+	defer stats.SetMode(modeREAD_DONE)
 	pos := int64(0)
 	br1 := NewBlockReader(in1, file1)
 	defer br1.Close()
@@ -474,7 +541,6 @@ func ReadTwoFiles(file1, file2 string) {
 		br1.Return(block1)
 		br2.Return(block2)
 	}
-	stats.SetMode(modeREAD_DONE)
 }
 
 // syntaxError prints the syntax
@@ -483,11 +549,13 @@ func syntaxError() {
 
 Automatic usage:
   stressdisk run directory            - auto fill the directory up and soak test it
+  stressdisk flash directory          - auto fill the directory up and stress test it
   stressdisk clean directory          - delete the check files from the directory
 
 Manual usage:
   stressdisk help                       - this help
   stressdisk [ -s size ] write filename - write a check file
+  stressdisk [ -statsfile [stats-filename] ] flash directory - write a file
   stressdisk read filename              - read the check file back
   stressdisk reads filename             - ... repeatedly for duration set
   stressdisk check filename1 filename2  - compare two check files
@@ -598,12 +666,11 @@ func GetFiles(dir string) []string {
 func finished(message string) {
 	log.Println(message)
 	stats.Log()
+	stats.Store()
 	// Log pass / fail if we did any testing
-	log.Printf("Bytes read:    %10d MByte", stats.read / MB)
-	log.Printf("Bytes written: %10d MByte", stats.written / MB)
-	if stats.read != 0 {
-		if stats.errors != 0 {
-			log.Fatalf("FAILED with %d errors - see %q for details", stats.errors, *logfile)
+	if stats.Read != 0 {
+		if stats.Errors != 0 {
+			log.Fatalf("FAILED with %d errors - see %q for details", stats.Errors, *logfile)
 		}
 		log.Println("PASSED with no errors")
 	}
@@ -678,6 +745,9 @@ func main() {
 		// FIXME should be default
 		checkArgs(args, 1, "Need directory to write check files")
 		dir := args[0]
+		if *statsDir == "" {
+			*statsDir = dir // if the default is "", then use the root device dir
+		}
 		files := GetFiles(dir)
 		action = func() bool {
 			a, b := pairs(len(files))
@@ -687,12 +757,29 @@ func main() {
 			return true
 		}
 	case "flash":
+		// flash mode is intended to stress the flash media by writing TST files
+		// verifying that the data is valid, deleting the flash TST files, and
+		// repeating the write + verify process continually.  This will be
+		// destructive to flash media if run long periods of time, since flash
+		// devices have a limited number of writes per sector/cell.
+		// THIS IS INTENTIONAL!  By stressing the flash media to its breaking point
+		// you can experimentally determine what the lifetime of the media will be,
+		// and use that information to your benefit.  If you are merely interested in
+		// doing a less destructive test of the flash device for data integrity, then
+		// should use the "run" mode, as this mode only writes TST files once, and
+		// does reads operations to verify data integrity which have little to no
+		// destructive penalty (for example, assuming media is mounted with noatime
+		// parameter).
+		logMode = true
 		checkArgs(args, 1, "Need directory to perform testing")
 		dir := args[0]
+		if *statsDir == "" {
+			*statsDir = dir // if the default is "", then use the root device dir
+		}
 		files := ReadDir(dir)
 		DeleteFiles(files)
 		action = func() bool {
-			for j := 0; j < 1000000; j++ { // N* 1,000,000 GB || N* 1,000 TB
+			for { // run forever -- stop on timeout, error, cancel
 				files := GetFiles(dir)
 				a, b := pairs(len(files))
 				for i := range a {
@@ -703,10 +790,11 @@ func main() {
 			return false
 		}
 
-
 	default:
 		fatalf("Command %q not understood\n", command)
 	}
+
+	stats.Load()
 
 	// Exit on keyboard interrrupt
 	go func() {
@@ -728,6 +816,7 @@ func main() {
 		for {
 			<-ch
 			stats.Log()
+			stats.Store()
 		}
 	}()
 
