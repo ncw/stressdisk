@@ -72,11 +72,11 @@ var logMode bool = false // log read/write mode statistics
 
 // enum program mode
 const (
-	modeNONE = iota
-	modeREAD
-	modeREAD_DONE
-	modeWRITE
-	modeWRITE_DONE
+	modeNone = iota
+	modeRead
+	modeReadDone
+	modeWrite
+	modeWriteDone
 )
 
 // Random contains the state for the random stream generator
@@ -102,7 +102,7 @@ func NewRandom() *Random {
 	return r
 }
 
-// Names of struct vars need to be capitalized to export to json
+// Stats stores accumulated statistics
 type Stats struct {
 	Read         uint64
 	Written      uint64
@@ -112,7 +112,7 @@ type Stats struct {
 	ReadSeconds  float64   // read seconds accumulator
 	WriteStart   time.Time // start of unaccumulated time of write operation
 	WriteSeconds float64   // write seconds accumulator
-	Mode         int       // current mode - modeNONE, modeREAD, modeWRITE
+	mode         int       // current mode - modeNone, modeRead, modeWrite
 }
 
 // NewStats cretates an initialised Stats
@@ -120,43 +120,40 @@ func NewStats() *Stats {
 	return &Stats{Start: time.Now()}
 }
 
-// Be sure to transition from for example modeREAD to mode_READ_DONE,
-// before transitioning to mode_WRITE, otherwise you will lose the
+// Be sure to transition from for example modeRead to modeReadDone,
+// before transitioning to modeWrite, otherwise you will lose the
 // corresponding time statistic in the time accumulator.
-// Also you must for enter modeREAD before transition to modeREAD_DONE.
 func (s *Stats) SetMode(mode int) {
-	s.Mode = mode
-	switch s.Mode {
-	default:
-	case modeNONE:
-
-	case modeREAD:
+	s.mode = mode
+	switch s.mode {
+	case modeRead:
 		s.ReadStart = time.Now()
 		tmpReads = stats.Read
-	case modeREAD_DONE:
+	case modeReadDone:
 		dt := time.Now().Sub(s.ReadStart)
 		s.ReadSeconds += dt.Seconds()
 		if logMode {
 			log.Printf("Read:    %10d MByte (%7.2f MByte/s)",
 				(stats.Read-tmpReads)/MB,
 				float64(stats.Read-tmpReads)/MB/dt.Seconds())
-
 		}
 		stats.Store()
-	case modeWRITE:
+	case modeWrite:
 		s.WriteStart = time.Now()
 		tmpWrites = stats.Written
 
-	case modeWRITE_DONE:
+	case modeWriteDone:
 		dt := time.Now().Sub(s.WriteStart)
 		s.WriteSeconds += dt.Seconds()
 		if logMode {
 			log.Printf("Written:  %10d MByte (%7.2f MByte/s)",
 				(stats.Written-tmpWrites)/MB,
 				float64(stats.Written-tmpWrites)/MB/dt.Seconds())
-
 		}
 		stats.Store()
+	case modeNone:
+	default:
+		// do nothing
 	}
 }
 
@@ -168,16 +165,16 @@ func (s *Stats) String() string {
 
 	// calculate interim duration - for periodic stats display
 	// while operation is not completed.
-	switch s.Mode {
-	default:
-	case modeNONE:
-		// do nothing
-	case modeREAD:
+	switch s.mode {
+	case modeRead:
 		s.ReadSeconds += time.Now().Sub(s.ReadStart).Seconds()
 		s.ReadStart = time.Now()
-	case modeWRITE:
+	case modeWrite:
 		s.WriteSeconds += time.Now().Sub(s.WriteStart).Seconds()
 		s.WriteStart = time.Now()
+	case modeNone:
+	default:
+		// do nothing
 	}
 
 	if s.ReadSeconds != 0 {
@@ -230,7 +227,6 @@ func (s *Stats) Load() {
 				decoder := json.NewDecoder(statsFile)
 				err = decoder.Decode(&stats)
 				stats.Start = time.Now() // restart the program timer
-				stats.Mode = 0           // reset the mode to uninitialized
 				log.Printf("loaded statsfile %s", statPathname)
 				stats.Log()
 			}
@@ -439,10 +435,8 @@ func ReadFile(file string) {
 	br2 := NewBlockReader(random, "random")
 	defer br2.Close()
 	output := true
-
-	stats.SetMode(modeREAD)
-	defer stats.SetMode(modeREAD_DONE)
-
+	stats.SetMode(modeRead)
+	defer stats.SetMode(modeReadDone)
 	for {
 		block1 := br1.Read()
 		block2 := br2.Read()
@@ -473,8 +467,8 @@ func WriteFile(file string, size int64) bool {
 	random := NewRandom()
 	br := NewBlockReader(random, "random")
 	defer br.Close()
-	stats.SetMode(modeWRITE)
-	defer stats.SetMode(modeWRITE_DONE)
+	stats.SetMode(modeWrite)
+	defer stats.SetMode(modeWriteDone)
 	for size > 0 {
 		block := br.Read()
 		_, err := out.Write(block)
@@ -517,8 +511,8 @@ func ReadTwoFiles(file1, file2 string) {
 
 	log.Printf("Reading file %q, %q\n", file1, file2)
 
-	stats.SetMode(modeREAD)
-	defer stats.SetMode(modeREAD_DONE)
+	stats.SetMode(modeRead)
+	defer stats.SetMode(modeReadDone)
 	pos := int64(0)
 	br1 := NewBlockReader(in1, file1)
 	defer br1.Close()

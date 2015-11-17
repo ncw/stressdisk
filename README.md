@@ -38,11 +38,14 @@ Use `stressdisk -h` to see all the options.
     
     Automatic usage:
       stressdisk run directory            - auto fill the directory up and soak test it
+      stressdisk flash directory          - auto fill the directory up and stress test it
       stressdisk clean directory          - delete the check files from the directory
     
     Manual usage:
       stressdisk help                       - this help
       stressdisk [ -s size ] write filename - write a check file
+      stressdisk [-statsenable=1] [ -statsfile=stats-filename ] flash directory 
+                                            - load/store persistent stats file
       stressdisk read filename              - read the check file back
       stressdisk reads filename             - ... repeatedly for duration set
       stressdisk check filename1 filename2  - compare two check files
@@ -54,6 +57,11 @@ Use `stressdisk -h` to see all the options.
       -logfile="stressdisk.log": File to write log to set to empty to ignore
       -s=1000000000: Size of the file to write
       -stats=1m0s: Interval to print stats
+      -statsenable=1: Enable statistics data on disk
+      -statsfile="example-file": Filename to load/store statistics data on disk
+      -statsdir="example-dir": Path to load/store statistics data on disk
+
+
 
 Quickstart
 ----------
