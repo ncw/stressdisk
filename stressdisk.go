@@ -62,6 +62,15 @@ var (
 	stats         *Stats
 )
 
+// enum program mode
+const (
+	modeNone = iota
+	modeRead
+	modeReadDone
+	modeWrite
+	modeWriteDone
+)
+
 // Random contains the state for the random stream generator
 type Random struct {
 	extendedData []byte
@@ -87,10 +96,15 @@ func NewRandom() *Random {
 
 // Stats stores accumulated statistics
 type Stats struct {
-	read    uint64
-	written uint64
-	errors  uint64
-	start   time.Time
+	read         uint64
+	written      uint64
+	errors       uint64
+	start        time.Time
+	readStart    time.Time // start of unaccumulated time of read operation
+	readSeconds  float64   // read seconds accumulator
+	writeStart   time.Time // start of unaccumulated time of write operation
+	writeSeconds float64   // write seconds accumulator
+	mode         int       // current mode - modeNone, modeRead, modeWrite
 }
 
 // NewStats cretates an initialised Stats
@@ -98,16 +112,54 @@ func NewStats() *Stats {
 	return &Stats{start: time.Now()}
 }
 
+// Be sure to transition from for example modeRead to mode_READ_DONE,
+// before transitioning to mode_WRITE, otherwise you will lose the
+// corresponding time statistic in the time accumulator.
+// Also you must for enter modeRead before transition to modeReadDone.
+func (s *Stats) SetMode(mode int) {
+	s.mode = mode
+	switch s.mode {
+	default:
+	case modeNone:
+	case modeRead:
+		s.readStart = time.Now()
+	case modeReadDone:
+		s.readSeconds += time.Now().Sub(s.readStart).Seconds()
+	case modeWrite:
+		s.writeStart = time.Now()
+	case modeWriteDone:
+		s.writeSeconds += time.Now().Sub(s.writeStart).Seconds()
+	}
+}
+
 // String convert the Stats to a string for printing
 func (s *Stats) String() string {
-	dt := time.Now().Sub(s.start)
-	dt_seconds := dt.Seconds()
+	dt := time.Now().Sub(s.start) // total elapsed time
 	read, written := atomic.LoadUint64(&s.read), atomic.LoadUint64(&s.written)
 	read_speed, write_speed := 0.0, 0.0
-	if dt > 0 {
-		read_speed = float64(read) / MB / dt_seconds
-		write_speed = float64(written) / MB / dt_seconds
+
+	// calculate interim duration - for periodic stats display
+	// while operation is not completed.
+	switch s.mode {
+	case modeRead:
+		s.readSeconds += time.Now().Sub(s.readStart).Seconds()
+		s.readStart = time.Now()
+	case modeWrite:
+		s.writeSeconds += time.Now().Sub(s.writeStart).Seconds()
+		s.writeStart = time.Now()
+	case modeNone:
+		fallthrough
+	default:
+		// do nothing
 	}
+
+	if s.readSeconds != 0 {
+		read_speed = float64(read) / MB / s.readSeconds
+	}
+	if s.writeSeconds != 0 {
+		write_speed = float64(written) / MB / s.writeSeconds
+	}
+
 	return fmt.Sprintf(`
 Bytes read:    %10d MByte (%7.2f MByte/s)
 Bytes written: %10d MByte (%7.2f MByte/s)
@@ -349,6 +401,7 @@ func WriteFile(file string, size int64) bool {
 	random := NewRandom()
 	br := NewBlockReader(random, "random")
 	defer br.Close()
+	stats.SetMode(modeWrite)
 	for size > 0 {
 		block := br.Read()
 		_, err := out.Write(block)
@@ -361,6 +414,7 @@ func WriteFile(file string, size int64) bool {
 		size -= BlockSize
 		stats.Written(BlockSize)
 	}
+	stats.SetMode(modeWriteDone)
 
 	out.Close()
 	if failed {
@@ -391,6 +445,7 @@ func ReadTwoFiles(file1, file2 string) {
 
 	log.Printf("Reading file %q, %q\n", file1, file2)
 
+	stats.SetMode(modeRead)
 	pos := int64(0)
 	br1 := NewBlockReader(in1, file1)
 	defer br1.Close()
@@ -413,6 +468,7 @@ func ReadTwoFiles(file1, file2 string) {
 		br1.Return(block1)
 		br2.Return(block2)
 	}
+	stats.SetMode(modeReadDone)
 }
 
 // syntaxError prints the syntax
