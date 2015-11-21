@@ -44,11 +44,16 @@ import (
 )
 
 const (
-	MB        = 1024 * 1024 // Bytes in a Megabyte
-	BlockSize = 2 * MB      // size of block to do IO with
-	ranlen    = 55          // Magic constants (See Knuth: Seminumerical Algorithms)
-	ranlen2   = 24          // Do not change! (They are for a maximal length LFSR)
-	Leaf      = "TST_"      // name of the check files
+	// MB is Bytes in a Megabyte
+	MB = 1024 * 1024
+	// BlockSize is size of block to do IO with
+	BlockSize = 2 * MB
+	// Magic constants (See Knuth: Seminumerical Algorithms)
+	// Do not change! (They are for a maximal length LFSR)
+	ranlen  = 55
+	ranlen2 = 24
+	// Leaf is name of the check files
+	Leaf = "TST_"
 )
 
 // Globals
@@ -63,40 +68,20 @@ var (
 	noDirect      = flag.Bool("nodirect", false, "Don't use O_DIRECT")
 	statsFile     = flag.String("statsfile", "stressdisk_stats.json", "File to load/store statistics data")
 	stats         *Stats
-	openFile      func(string, int, os.FileMode) (*os.File, error) = directio.OpenFile
+	openFile      = directio.OpenFile
 )
 
-// enum program mode
+// statsMode defines what mode the stats collection is in
+type statsMode byte
+
+// statsMode definitions
 const (
-	modeNone = iota
+	modeNone statsMode = iota
 	modeRead
 	modeReadDone
 	modeWrite
 	modeWriteDone
 )
-
-// Random contains the state for the random stream generator
-type Random struct {
-	extendedData []byte
-	Data         []byte // A BlockSize chunk of data which points to extendedData
-	bytes        int    // number of bytes of randomness
-	pos          int    // read position for Read
-}
-
-// NewRandom make a new random stream generator
-func NewRandom() *Random {
-	r := &Random{}
-	r.extendedData = make([]byte, BlockSize+ranlen)
-	r.Data = r.extendedData[0:BlockSize]
-	r.Data[0] = 1
-	for i := 1; i < ranlen; i++ {
-		r.Data[i] = 0xA5
-	}
-	r.Randomise() // initial randomisation
-	r.bytes = 0   // start buffer empty
-	r.pos = 0
-	return r
-}
 
 // Stats stores accumulated statistics
 type Stats struct {
@@ -108,7 +93,7 @@ type Stats struct {
 	ReadSeconds  float64   // read seconds accumulator
 	WriteStart   time.Time // start of unaccumulated time of write operation
 	WriteSeconds float64   // write seconds accumulator
-	mode         int       // current mode - modeNone, modeRead, modeWrite
+	mode         statsMode // current mode - modeNone, modeRead, modeWrite
 }
 
 // NewStats cretates an initialised Stats
@@ -116,10 +101,12 @@ func NewStats() *Stats {
 	return &Stats{Start: time.Now()}
 }
 
+// SetMode sets the current operating mode of the stats module.
+//
 // Be sure to transition from for example modeRead to modeReadDone,
 // before transitioning to modeWrite, otherwise you will lose the
 // corresponding time statistic in the time accumulator.
-func (s *Stats) SetMode(mode int) {
+func (s *Stats) SetMode(mode statsMode) {
 	s.mode = mode
 	switch s.mode {
 	case modeRead:
@@ -141,7 +128,7 @@ func (s *Stats) SetMode(mode int) {
 func (s *Stats) String() string {
 	dt := time.Since(s.Start) // total elapsed time
 	read, written := atomic.LoadUint64(&s.Read), atomic.LoadUint64(&s.Written)
-	read_speed, write_speed := 0.0, 0.0
+	readSpeed, writeSpeed := 0.0, 0.0
 
 	// calculate interim duration - for periodic stats display
 	// while operation is not completed.
@@ -155,10 +142,10 @@ func (s *Stats) String() string {
 	}
 
 	if s.ReadSeconds != 0 {
-		read_speed = float64(read) / MB / s.ReadSeconds
+		readSpeed = float64(read) / MB / s.ReadSeconds
 	}
 	if s.WriteSeconds != 0 {
-		write_speed = float64(written) / MB / s.WriteSeconds
+		writeSpeed = float64(written) / MB / s.WriteSeconds
 	}
 
 	return fmt.Sprintf(`
@@ -167,8 +154,8 @@ Bytes written: %10d MByte (%7.2f MByte/s)
 Errors:        %10d
 Elapsed time:  %v
 `,
-		read/MB, read_speed,
-		written/MB, write_speed,
+		read/MB, readSpeed,
+		written/MB, writeSpeed,
 		atomic.LoadUint64(&s.Errors),
 		dt)
 
@@ -237,6 +224,29 @@ func (s *Stats) AddErrors(errors uint64) {
 	atomic.AddUint64(&s.Errors, errors)
 }
 
+// Random contains the state for the random stream generator
+type Random struct {
+	extendedData []byte
+	Data         []byte // A BlockSize chunk of data which points to extendedData
+	bytes        int    // number of bytes of randomness
+	pos          int    // read position for Read
+}
+
+// NewRandom make a new random stream generator
+func NewRandom() *Random {
+	r := &Random{}
+	r.extendedData = make([]byte, BlockSize+ranlen)
+	r.Data = r.extendedData[0:BlockSize]
+	r.Data[0] = 1
+	for i := 1; i < ranlen; i++ {
+		r.Data[i] = 0xA5
+	}
+	r.Randomise() // initial randomisation
+	r.bytes = 0   // start buffer empty
+	r.pos = 0
+	return r
+}
+
 // Randomise fills the random block up with randomness.
 //
 // This uses a random number generator from Knuth: Seminumerical
@@ -261,23 +271,23 @@ func (r *Random) Randomise() {
 
 // Read implements io.Reader for Random
 func (r *Random) Read(p []byte) (int, error) {
-	bytes_to_write := len(p)
-	bytes_written := 0
-	for bytes_to_write > 0 {
+	bytesToWrite := len(p)
+	bytesWritten := 0
+	for bytesToWrite > 0 {
 		if r.bytes <= 0 {
 			r.Randomise()
 		}
-		chunk_size := bytes_to_write
-		if bytes_to_write >= r.bytes {
-			chunk_size = r.bytes
+		chunkSize := bytesToWrite
+		if bytesToWrite >= r.bytes {
+			chunkSize = r.bytes
 		}
-		copy(p[bytes_written:bytes_written+chunk_size], r.Data[r.pos:r.pos+chunk_size])
-		bytes_written += chunk_size
-		bytes_to_write -= chunk_size
-		r.pos += chunk_size
-		r.bytes -= chunk_size
+		copy(p[bytesWritten:bytesWritten+chunkSize], r.Data[r.pos:r.pos+chunkSize])
+		bytesWritten += chunkSize
+		bytesToWrite -= chunkSize
+		r.pos += chunkSize
+		r.bytes -= chunkSize
 	}
-	return bytes_written, nil
+	return bytesWritten, nil
 }
 
 // outputDiff checks two blocks and outputs differences to the log
@@ -297,7 +307,7 @@ func outputDiff(pos int64, a, b []byte, output bool) bool {
 					output = false
 				}
 			}
-			errors += 1
+			errors++
 		}
 	}
 	stats.AddErrors(errors)
@@ -320,7 +330,7 @@ type BlockReader struct {
 	wg sync.WaitGroup
 }
 
-// blockReader reads a file in BlockSize using BlockSize chunks until done.
+// NewBlockReader reads a file in BlockSize using BlockSize chunks until done.
 //
 // It returns them in the channel using a triple buffered goroutine to
 // do the reading so as to parallelise the IO.
@@ -578,7 +588,7 @@ OUTER:
 // ReadDir finds the check files in the directory passed in, returning all the files
 func ReadDir(dir string) []string {
 	matcher := regexp.MustCompile(`^` + regexp.QuoteMeta(Leaf) + `\d{4,}$`)
-	files := make([]string, 0)
+	var files []string
 	entries, err := ioutil.ReadDir(dir)
 	if err != nil {
 		// Warn only if couldn't open directory
@@ -609,7 +619,7 @@ func DeleteFiles(files []string) {
 
 // WriteFiles writes check files until the disk is full
 func WriteFiles(dir string) []string {
-	files := make([]string, 0)
+	var files []string
 	for i := 0; ; i++ {
 		file := filepath.Join(dir, fmt.Sprintf("%s%04d", Leaf, i))
 		if WriteFile(file, *fileSize) {
