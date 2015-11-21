@@ -639,6 +639,30 @@ func main() {
 	if len(args) < 1 {
 		fatalf("No command supplied\n")
 	}
+
+	// Exit on keyboard interrrupt
+	go func() {
+		ch := make(chan os.Signal, 1)
+		signal.Notify(ch, syscall.SIGINT)
+		<-ch
+		finished("Interrupt received")
+	}()
+
+	// Exit on timeout
+	go func() {
+		<-time.After(*duration)
+		finished(fmt.Sprintf("Exiting after running for > %v", duration))
+	}()
+
+	// Print the stats every statsInterval
+	go func() {
+		ch := time.Tick(*statsInterval)
+		for {
+			<-ch
+			stats.Log()
+		}
+	}()
+
 	command := strings.ToLower(args[0])
 	args = args[1:]
 	var action func() bool
@@ -684,29 +708,6 @@ func main() {
 	default:
 		fatalf("Command %q not understood\n", command)
 	}
-
-	// Exit on keyboard interrrupt
-	go func() {
-		ch := make(chan os.Signal, 1)
-		signal.Notify(ch, syscall.SIGINT)
-		<-ch
-		finished("Interrupt received")
-	}()
-
-	// Exit on timeout
-	go func() {
-		<-time.After(*duration)
-		finished(fmt.Sprintf("Exiting after running for > %v", duration))
-	}()
-
-	// Print the stats every statsInterval
-	go func() {
-		ch := time.Tick(*statsInterval)
-		for {
-			<-ch
-			stats.Log()
-		}
-	}()
 
 	// Run the action
 	for round := 0; ; round++ {
