@@ -59,7 +59,9 @@ var (
 	statsInterval = flag.Duration("stats", time.Minute*1, "Interval to print stats")
 	logfile       = flag.String("logfile", "stressdisk.log", "File to write log to set to empty to ignore")
 	maxErrors     = flag.Uint64("maxerrors", 64, "Max number of errors to print per file")
+	noDirect      = flag.Bool("nodirect", false, "Don't use O_DIRECT")
 	stats         *Stats
+	openFile      func(string, int, os.FileMode) (*os.File, error) = directio.OpenFile
 )
 
 // enum program mode
@@ -351,7 +353,7 @@ func (br *BlockReader) Close() {
 
 // ReadFile reads the file given and checks it against the random source
 func ReadFile(file string) {
-	in, err := directio.OpenFile(file, os.O_RDONLY, 0666)
+	in, err := openFile(file, os.O_RDONLY, 0666)
 	if err != nil {
 		log.Fatalf("Failed to open %s for reading: %s\n", file, err)
 	}
@@ -386,7 +388,7 @@ func ReadFile(file string) {
 //
 // Returns a true if the write failed, false otherwise.
 func WriteFile(file string, size int64) bool {
-	out, err := directio.OpenFile(file, os.O_CREATE|os.O_WRONLY, 0666)
+	out, err := openFile(file, os.O_CREATE|os.O_WRONLY, 0666)
 	if err != nil {
 		log.Fatalf("Couldn't open file %q for write: %s\n", file, err)
 	}
@@ -427,13 +429,13 @@ func WriteFile(file string, size int64) bool {
 //
 // It reads the files in BlockSize chunks.
 func ReadTwoFiles(file1, file2 string) {
-	in1, err := directio.OpenFile(file1, os.O_RDONLY, 0666)
+	in1, err := openFile(file1, os.O_RDONLY, 0666)
 	if err != nil {
 		log.Fatalf("Couldn't open file %q for read\n", file1)
 	}
 	defer in1.Close()
 
-	in2, err := directio.OpenFile(file2, os.O_RDONLY, 0666)
+	in2, err := openFile(file2, os.O_RDONLY, 0666)
 	if err != nil {
 		log.Fatalf("Couldn't open file %q for read\n", file2)
 	}
@@ -572,7 +574,7 @@ func WriteFiles(dir string) []string {
 	return files
 }
 
-// GetFiles finds existing check files or created new ones
+// GetFiles finds existing check files or creates new ones
 func GetFiles(dir string) []string {
 	files := ReadDir(dir)
 	if len(files) == 0 {
@@ -605,6 +607,11 @@ func main() {
 	stats = NewStats()
 	runtime.GOMAXPROCS(3)
 	rand.Seed(time.Now().UnixNano())
+
+	// if no O_DIRECT just use normal OS open facility
+	if *noDirect {
+		openFile = os.OpenFile
+	}
 
 	// Setup profiling if desired
 	if *cpuprofile != "" {
