@@ -5,7 +5,7 @@
 
 rm -rf build
 
-gox -output "build/{{.OS}}/{{.Arch}}/{{.Dir}}"
+gox --ldflags "-s" -output "build/{{.OS}}/{{.Arch}}/{{.Dir}}"
 
 cat <<'#EOF' > build/README.txt
 This directory contains builds of the stressdisk program.
