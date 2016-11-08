@@ -25,4 +25,4 @@ The files in this directory are organised by OS and processor type
 
 mv build/darwin build/osx
 
-( cd build ; tree . >> README.txt )
+( cd build ; tree --charset=ascii . >> README.txt )
