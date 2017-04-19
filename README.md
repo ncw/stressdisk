@@ -74,14 +74,15 @@ Quickstart
 
 Install your new media in your computer and format it (make a filesystem on it).
 
-Open a terminal (or cmd prompt if running Windows)
+Open a terminal (or cmd prompt if running Windows).
 
-To check the disk
+To check the disk:
 
     Linux: ./stressdisk run /media/nameofnewdisk
     Windows: stressdisk.exe run F:
 
-Let run for 24 hours.  Note whether any errors were reported.  Then use
+Let it run for 24 hours.  It will finish on its own.  Note whether any errors
+were reported.  Then use the following to remove the check files:
 
     Linux: ./stressdisk clean /media/nameofnewdisk
     Windows: stressdisk.exe clean F:
