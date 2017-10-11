@@ -69,6 +69,7 @@ var (
 	statsFile     = flag.String("statsfile", "stressdisk_stats.json", "File to load/store statistics data")
 	stats         *Stats
 	openFile      = directio.OpenFile
+	version       = "development version" // overridden by goreleaser
 )
 
 // statsMode defines what mode the stats collection is in
@@ -530,7 +531,7 @@ func ReadTwoFiles(file1, file2 string) {
 
 // syntaxError prints the syntax
 func syntaxError() {
-	fmt.Fprintf(os.Stderr, `Disk soak testing utility
+	fmt.Fprintf(os.Stderr, `stressdisk - a disk soak testing utility - %s
 
 Automatic usage:
   stressdisk run directory            - auto fill the directory up and soak test it
@@ -546,7 +547,7 @@ Manual usage:
   stressdisk checks filename1 filename2 - ... repeatedly for duration set
 
 Full options:
-`)
+`, version)
 	flag.PrintDefaults()
 }
 
