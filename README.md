@@ -20,7 +20,7 @@ StressDisk is a Go program and comes as a single binary file.
 
 Download the relevant binary from
 
-- http://www.craig-wood.com/nick/pub/stressdisk/
+- https://github.com/ncw/stressdisk/releases
 
 Or alternatively if you have Go installed use
 
