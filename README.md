@@ -30,7 +30,6 @@ If you want to modify the sources, it is recommended to check out the repository
 
     git clone https://github.com/ncw/stressdisk.git
     cd stressdisk
-    go mod init github.com/ncw/stressdisk
     go build .
 
 You can then modify the source, rebuild as needed, and submit patches.
