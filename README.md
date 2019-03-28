@@ -106,6 +106,33 @@ The default running time for stressdisk is 24h which is a sensible
 minimum.  However if you want to run it for longer then use `-duration
 48h` for instance.
 
+Errors
+------
+
+If stressdisk finds an error it will print lines like this:
+
+    2019/03/07 10:55:09 0AA00000: 2D, A1 diff 8C
+
+The fields are `offset`, `file1 value`, `file 2 value` and the diff
+which is `file1_value XOR file2_value` all in hexadecimal.  The diff
+will be a binary number for a single bit error so `01`, `02`, `04`,
+`08`, `10`, `20`, `40`, `80`.
+
+This may give some insight into the problem (eg a single bit flipped),
+or errors starting 4k boundaries, but may not.
+
+However, the actual errors aren't that important, you shouldn't get
+**any**. If you do then:
+
+1. run [memtest86](https://www.memtest86.com/) on the machine for 48 hours to check for RAM problems, if this passes then
+2. try the stressdisk test on another machine if you can, if this fails then
+3. discard or return the media
+
+If you didn't get to step 3. then you'll need to play with the
+hardware of the machine, replace the RAM etc.  Stressdisk errors are
+*usually* caused by bad media, but not always.  Bad RAM is a fairly
+likely cause of stressdisk errors too.
+
 Testing Flash
 -------------
 
