@@ -24,10 +24,16 @@ Download the relevant binary from
 
 Or alternatively if you have Go installed use
 
-    go get github.com/ncw/stressdisk
+    go install github.com/ncw/stressdisk@latest
 
-and this will build the binary in `$GOPATH/bin`.  You can then modify
-the source and submit patches.
+If you want to modify the sources, it is recommended to check out the repository.
+
+    git clone https://github.com/ncw/stressdisk.git
+    cd stressdisk
+    go mod init github.com/ncw/stressdisk
+    go build .
+
+You can then modify the source, rebuild as needed, and submit patches.
 
 Usage
 -----
