@@ -549,6 +549,10 @@ Manual usage:
 Full options:
 `, version)
 	flag.PrintDefaults()
+	fmt.Fprintf(os.Stderr, `
+Note that flags must be provided BEFORE the stressdisk command, eg
+  stressdisk -duration 48h run /mnt
+`)
 }
 
 // Exit with the message
@@ -561,7 +565,9 @@ func fatalf(message string, args ...interface{}) {
 // checkArgs checks there are enough arguments and prints a message if not
 func checkArgs(args []string, n int, message string) {
 	if len(args) != n {
-		fatalf("%d arguments required: %s\n", n, message)
+		fatalf("%d arguments required: %s\n"+
+			"Make sure flags are listed before the command, eg\n"+
+			"stressdisk -duration 24h run /mnt\n", n, message)
 	}
 }
 
