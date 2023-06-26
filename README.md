@@ -211,4 +211,5 @@ Contributors
 
 - Yves Junqueira for code review and helpful suggestions
 - dcabro for reporting the windows empty partition issue
+- Colin Lord for fixing documentation issues
 - Your name goes here!
