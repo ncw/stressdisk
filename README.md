@@ -67,6 +67,9 @@ Full options:
         Interval to print stats (default 1m0s)
   -statsfile string
         File to load/store statistics data (default "stressdisk_stats.json")
+
+Note that flags must be provided BEFORE the stressdisk command, eg
+  stressdisk -duration 48h run /mnt
 ```
 
 Quickstart
