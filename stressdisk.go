@@ -59,7 +59,7 @@ const (
 // Globals
 var (
 	// Flags
-	fileSize      = flag.Int64("s", 1E9, "Size of the check files")
+	fileSize      = flag.Int64("s", 1e9, "Size of the check files")
 	cpuprofile    = flag.String("cpuprofile", "", "Write cpu profile to file")
 	duration      = flag.Duration("duration", time.Hour*24, "Duration to run test")
 	statsInterval = flag.Duration("stats", time.Minute*1, "Interval to print stats")
